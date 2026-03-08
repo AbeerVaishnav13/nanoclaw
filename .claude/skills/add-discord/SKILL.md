@@ -5,23 +5,25 @@ description: Add Discord bot channel integration to NanoClaw.
 
 # Add Discord Channel
 
-Adds Discord support to NanoClaw via discord.js. The bot listens for messages in registered Discord channels and routes them through the agent system.
+This skill adds Discord support to NanoClaw, then walks through interactive setup.
 
-Run `/add-discord` in Claude Code.
+## Phase 1: Pre-flight
 
-## Step 0: Preflight
+### Check if already applied
 
-Check for clean working tree:
+Check if `src/channels/discord.ts` exists. If it does, skip to Phase 3 (Setup). The code changes are already in place.
 
-```bash
-git status --porcelain
-```
+### Ask the user
 
-If output is non-empty, tell the user to commit or stash first, then stop.
+Use `AskUserQuestion` to collect configuration:
 
-Check if Discord is already installed — look for `src/channels/discord.ts`. If it exists, skip to Step 2 (Setup).
+AskUserQuestion: Do you have a Discord bot token, or do you need to create one?
 
-Check remotes:
+If they have one, collect it now. If not, we'll create one in Phase 3.
+
+## Phase 2: Apply Code Changes
+
+### Ensure upstream remote
 
 ```bash
 git remote -v
@@ -33,26 +35,23 @@ If `upstream` is missing, add it:
 git remote add upstream https://github.com/qwibitai/nanoclaw.git
 ```
 
-Fetch the skill branch:
+### Merge the skill branch
 
 ```bash
 git fetch upstream skill/discord
-```
-
-## Step 1: Merge the skill branch
-
-```bash
 git merge upstream/skill/discord
 ```
 
-If conflicts occur, resolve them. The skill branch adds:
-- `src/channels/discord.ts` — DiscordChannel class with self-registration
-- `src/channels/discord.test.ts` — unit tests with discord.js mock
-- `import './discord.js'` in `src/channels/index.ts`
-- `discord.js` dependency in `package.json`
+This merges in:
+- `src/channels/discord.ts` (DiscordChannel class with self-registration via `registerChannel`)
+- `src/channels/discord.test.ts` (unit tests with discord.js mock)
+- `import './discord.js'` appended to the channel barrel file `src/channels/index.ts`
+- `discord.js` npm dependency in `package.json`
 - `DISCORD_BOT_TOKEN` in `.env.example`
 
-After merge:
+If the merge reports conflicts, resolve them by reading the conflicted files and understanding the intent of both sides.
+
+### Validate code changes
 
 ```bash
 npm install
@@ -60,16 +59,16 @@ npm run build
 npx vitest run src/channels/discord.test.ts
 ```
 
-All tests must pass and build must be clean before proceeding.
+All tests must pass (including the new Discord tests) and build must be clean before proceeding.
 
-## Step 2: Setup
+## Phase 3: Setup
 
 ### Create Discord Bot (if needed)
 
-Use `AskUserQuestion`: Do you have a Discord bot token, or do you need to create one?
+If the user doesn't have a bot token, tell them:
 
-If they need to create one, tell them:
-
+> I need you to create a Discord bot:
+>
 > 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
 > 2. Click **New Application** and give it a name (e.g., "Andy Assistant")
 > 3. Go to the **Bot** tab on the left sidebar
@@ -92,11 +91,15 @@ Add to `.env`:
 DISCORD_BOT_TOKEN=<their-token>
 ```
 
+Channels auto-enable when their credentials are present — no extra configuration needed.
+
 Sync to container environment:
 
 ```bash
 mkdir -p data/env && cp .env data/env/env
 ```
+
+The container reads environment from `data/env/env`, not `.env` directly.
 
 ### Build and restart
 
@@ -105,7 +108,7 @@ npm run build
 launchctl kickstart -k gui/$(id -u)/com.nanoclaw
 ```
 
-## Step 3: Registration
+## Phase 4: Registration
 
 ### Get Channel ID
 
@@ -125,7 +128,34 @@ Wait for the user to provide the channel ID (format: `dc:1234567890123456`).
 
 Use the IPC register flow or register directly. The channel ID, name, and folder name are needed.
 
-## Step 4: Verify
+For a main channel (responds to all messages):
+
+```typescript
+registerGroup("dc:<channel-id>", {
+  name: "<server-name> #<channel-name>",
+  folder: "discord_main",
+  trigger: `@${ASSISTANT_NAME}`,
+  added_at: new Date().toISOString(),
+  requiresTrigger: false,
+  isMain: true,
+});
+```
+
+For additional channels (trigger-only):
+
+```typescript
+registerGroup("dc:<channel-id>", {
+  name: "<server-name> #<channel-name>",
+  folder: "discord_<channel-name>",
+  trigger: `@${ASSISTANT_NAME}`,
+  added_at: new Date().toISOString(),
+  requiresTrigger: true,
+});
+```
+
+## Phase 5: Verify
+
+### Test the connection
 
 Tell the user:
 
@@ -135,7 +165,7 @@ Tell the user:
 >
 > The bot should respond within a few seconds.
 
-Check logs if needed:
+### Check logs if needed
 
 ```bash
 tail -f logs/nanoclaw.log
@@ -151,10 +181,32 @@ tail -f logs/nanoclaw.log
 4. Service is running: `launchctl list | grep nanoclaw`
 5. Verify the bot has been invited to the server (check OAuth2 URL was used)
 
+### Bot only responds to @mentions
+
+This is the default behavior for non-main channels (`requiresTrigger: true`). To change:
+- Update the registered group's `requiresTrigger` to `false`
+- Or register the channel as the main channel
+
 ### Message Content Intent not enabled
 
-If the bot connects but can't read messages:
+If the bot connects but can't read messages, ensure:
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
 2. Select your application > **Bot** tab
 3. Under **Privileged Gateway Intents**, enable **Message Content Intent**
 4. Restart NanoClaw
+
+### Getting Channel ID
+
+If you can't copy the channel ID:
+- Ensure **Developer Mode** is enabled: User Settings > Advanced > Developer Mode
+- Right-click the channel name in the server sidebar > Copy Channel ID
+
+## After Setup
+
+The Discord bot supports:
+- Text messages in registered channels
+- Attachment descriptions (images, videos, files shown as placeholders)
+- Reply context (shows who the user is replying to)
+- @mention translation (Discord `<@botId>` → NanoClaw trigger format)
+- Message splitting for responses over 2000 characters
+- Typing indicators while the agent processes
