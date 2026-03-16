@@ -41,6 +41,7 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  model?: string;
 }
 
 export interface ContainerOutput {
@@ -73,7 +74,7 @@ function buildVolumeMounts(
     mounts.push({
       hostPath: projectRoot,
       containerPath: '/workspace/project',
-      readonly: true,
+      readonly: false,
     });
 
     // Shadow .env so the agent cannot read secrets from the mounted project root.
@@ -83,6 +84,25 @@ function buildVolumeMounts(
       mounts.push({
         hostPath: '/dev/null',
         containerPath: '/workspace/project/.env',
+        readonly: true,
+      });
+    }
+
+    // Git identity and SSH credentials (read-only)
+    const homeDir = process.env.HOME || '/root';
+    const gitConfig = path.join(homeDir, '.gitconfig');
+    if (fs.existsSync(gitConfig)) {
+      mounts.push({
+        hostPath: gitConfig,
+        containerPath: '/home/node/.gitconfig',
+        readonly: true,
+      });
+    }
+    const sshDir = path.join(homeDir, '.ssh');
+    if (fs.existsSync(sshDir)) {
+      mounts.push({
+        hostPath: sshDir,
+        containerPath: '/home/node/.ssh',
         readonly: true,
       });
     }

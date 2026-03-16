@@ -64,6 +64,31 @@ import { logger } from './logger.js';
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
 
+// --- Per-group settings (model preference, etc.) ---
+interface GroupSettings {
+  model?: string;
+}
+
+const MODEL_ALIASES: Record<string, string> = {
+  sonnet: 'claude-sonnet-4-6',
+  opus: 'claude-opus-4-6',
+  haiku: 'claude-haiku-4-5-20251001',
+};
+
+function readGroupSettings(folder: string): GroupSettings {
+  try {
+    const settingsPath = path.join(resolveGroupFolderPath(folder), 'nanoclaw.settings.json');
+    return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeGroupSettings(folder: string, settings: GroupSettings): void {
+  const settingsPath = path.join(resolveGroupFolderPath(folder), 'nanoclaw.settings.json');
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+}
+
 let lastTimestamp = '';
 let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
@@ -310,6 +335,8 @@ async function runAgent(
       }
     : undefined;
 
+  const groupSettings = readGroupSettings(group.folder);
+
   try {
     const output = await runContainerAgent(
       group,
@@ -320,6 +347,7 @@ async function runAgent(
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
+        model: groupSettings.model,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -536,6 +564,64 @@ async function main(): Promise<void> {
     }
   }
 
+  // Handle built-in slash commands (/new, /model, /help)
+  async function handleCommand(
+    trimmed: string,
+    chatJid: string,
+  ): Promise<boolean> {
+    const group = registeredGroups[chatJid];
+    if (!group) return false;
+    const channel = findChannel(channels, chatJid);
+    if (!channel) return false;
+
+    if (trimmed === '/new') {
+      delete sessions[group.folder];
+      setSession(group.folder, '');
+      saveState();
+      await channel.sendMessage(chatJid, 'Started a new conversation.');
+      return true;
+    }
+
+    if (trimmed === '/help') {
+      const settings = readGroupSettings(group.folder);
+      const currentModel = settings.model || 'claude-sonnet-4-6';
+      await channel.sendMessage(
+        chatJid,
+        [
+          'Available commands:',
+          '  /new — start a fresh conversation (clear session)',
+          '  /model — show current model',
+          '  /model <name> — set model (sonnet, opus, haiku, or full model ID)',
+          '  /help — show this help',
+          '  /remote-control — start Claude Code remote session',
+          '  /remote-control-end — stop remote session',
+          '',
+          `Current model: ${currentModel}`,
+        ].join('\n'),
+      );
+      return true;
+    }
+
+    if (trimmed === '/model') {
+      const settings = readGroupSettings(group.folder);
+      const currentModel = settings.model || 'claude-sonnet-4-6';
+      await channel.sendMessage(chatJid, `Current model: ${currentModel}`);
+      return true;
+    }
+
+    if (trimmed.startsWith('/model ')) {
+      const arg = trimmed.slice('/model '.length).trim();
+      const resolved = MODEL_ALIASES[arg] || arg;
+      const settings = readGroupSettings(group.folder);
+      settings.model = resolved;
+      writeGroupSettings(group.folder, settings);
+      await channel.sendMessage(chatJid, `Model set to: ${resolved}`);
+      return true;
+    }
+
+    return false;
+  }
+
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
@@ -545,6 +631,17 @@ async function main(): Promise<void> {
         handleRemoteControl(trimmed, chatJid, msg).catch((err) =>
           logger.error({ err, chatJid }, 'Remote control command error'),
         );
+        return;
+      }
+
+      // Built-in slash commands — intercept before storage
+      if (trimmed.startsWith('/')) {
+        handleCommand(trimmed, chatJid).then((handled) => {
+          if (!handled) {
+            // Unknown command — pass through to agent as a regular message
+            storeMessage(msg);
+          }
+        }).catch((err) => logger.error({ err, chatJid }, 'Command error'));
         return;
       }
 
