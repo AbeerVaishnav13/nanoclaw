@@ -42,6 +42,12 @@ export interface RegisteredGroup {
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
 }
 
+export interface ImageAttachment {
+  data: string; // base64-encoded, resized image
+  media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+  name: string;
+}
+
 export interface NewMessage {
   id: string;
   chat_jid: string;
@@ -51,6 +57,8 @@ export interface NewMessage {
   timestamp: string;
   is_from_me?: boolean;
   is_bot_message?: boolean;
+  /** Transient — not stored in DB. Resized image attachments for multimodal prompts. */
+  images?: ImageAttachment[];
 }
 
 export interface ScheduledTask {

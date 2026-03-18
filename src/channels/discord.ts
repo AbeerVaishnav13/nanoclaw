@@ -2,9 +2,14 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  Interaction,
   Message,
+  REST,
+  Routes,
+  SlashCommandBuilder,
   TextChannel,
 } from 'discord.js';
+import sharp from 'sharp';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -12,10 +17,79 @@ import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
+  ImageAttachment,
   OnChatMetadata,
   OnInboundMessage,
   RegisteredGroup,
 } from '../types.js';
+
+/** Discord Application Commands — these show autocomplete when users type "/" */
+const SLASH_COMMANDS = [
+  new SlashCommandBuilder()
+    .setName('new')
+    .setDescription('Start a fresh conversation (clear session)'),
+  new SlashCommandBuilder()
+    .setName('model')
+    .setDescription('Show or set the current model')
+    .addStringOption((opt) =>
+      opt
+        .setName('name')
+        .setDescription('Model to use')
+        .setRequired(false)
+        .addChoices(
+          { name: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6' },
+          { name: 'claude-opus-4-6', value: 'claude-opus-4-6' },
+          { name: 'claude-haiku-4-5-20251001', value: 'claude-haiku-4-5-20251001' },
+        ),
+    ),
+  new SlashCommandBuilder()
+    .setName('help')
+    .setDescription('Show available commands'),
+  new SlashCommandBuilder()
+    .setName('restart')
+    .setDescription('Restart nanoclaw (launchd will auto-restart)'),
+  new SlashCommandBuilder()
+    .setName('build-restart')
+    .setDescription('Build then restart nanoclaw'),
+  new SlashCommandBuilder()
+    .setName('update-nanoclaw')
+    .setDescription('Pull upstream NanoClaw updates, build, and restart'),
+];
+
+/** Max pixel dimension for images passed to Claude. Keeps token cost low. */
+const IMAGE_MAX_PX = 1024;
+/** JPEG quality for compressed images (75 = good quality, ~60% smaller). */
+const IMAGE_JPEG_QUALITY = 75;
+
+/**
+ * Download a Discord image URL, resize to IMAGE_MAX_PX on longest side,
+ * and return a base64-encoded JPEG for the Claude multimodal API.
+ */
+async function fetchAndResizeImage(url: string, name: string): Promise<ImageAttachment | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      logger.warn({ url, status: res.status }, 'Failed to fetch Discord image');
+      return null;
+    }
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const resized = await sharp(buffer)
+      .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: IMAGE_JPEG_QUALITY })
+      .toBuffer();
+
+    return {
+      data: resized.toString('base64'),
+      media_type: 'image/jpeg',
+      name,
+    };
+  } catch (err) {
+    logger.warn({ url, err }, 'Failed to process Discord image attachment');
+    return null;
+  }
+}
 
 export interface DiscordChannelOpts {
   onMessage: OnInboundMessage;
@@ -92,22 +166,24 @@ export class DiscordChannel implements Channel {
         }
       }
 
-      // Handle attachments — store placeholders so the agent knows something was sent
+      // Handle attachments — download and resize images, store placeholders for others
+      const imageAttachments: ImageAttachment[] = [];
       if (message.attachments.size > 0) {
-        const attachmentDescriptions = [...message.attachments.values()].map(
-          (att) => {
-            const contentType = att.contentType || '';
-            if (contentType.startsWith('image/')) {
-              return `[Image: ${att.name || 'image'}]`;
-            } else if (contentType.startsWith('video/')) {
-              return `[Video: ${att.name || 'video'}]`;
-            } else if (contentType.startsWith('audio/')) {
-              return `[Audio: ${att.name || 'audio'}]`;
-            } else {
-              return `[File: ${att.name || 'file'}]`;
-            }
-          },
-        );
+        const attachmentDescriptions: string[] = [];
+        for (const att of message.attachments.values()) {
+          const contentType = att.contentType || '';
+          if (contentType.startsWith('image/')) {
+            attachmentDescriptions.push(`[Image: ${att.name || 'image'}]`);
+            const img = await fetchAndResizeImage(att.url, att.name || 'image');
+            if (img) imageAttachments.push(img);
+          } else if (contentType.startsWith('video/')) {
+            attachmentDescriptions.push(`[Video: ${att.name || 'video'}]`);
+          } else if (contentType.startsWith('audio/')) {
+            attachmentDescriptions.push(`[Audio: ${att.name || 'audio'}]`);
+          } else {
+            attachmentDescriptions.push(`[File: ${att.name || 'file'}]`);
+          }
+        }
         if (content) {
           content = `${content}\n${attachmentDescriptions.join('\n')}`;
         } else {
@@ -160,6 +236,7 @@ export class DiscordChannel implements Channel {
         content,
         timestamp,
         is_from_me: false,
+        images: imageAttachments.length > 0 ? imageAttachments : undefined,
       });
 
       logger.info(
@@ -168,13 +245,67 @@ export class DiscordChannel implements Channel {
       );
     });
 
+    // Handle slash command interactions
+    this.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+      if (!interaction.isChatInputCommand()) return;
+
+      const channelId = interaction.channelId;
+      const chatJid = `dc:${channelId}`;
+      const sender = interaction.user.id;
+      const senderName =
+        interaction.guild
+          ? (interaction.member as any)?.displayName || interaction.user.displayName || interaction.user.username
+          : interaction.user.displayName || interaction.user.username;
+      const timestamp = interaction.createdAt.toISOString();
+
+      // Build equivalent text command
+      let textCommand = `/${interaction.commandName}`;
+      const modelArg = interaction.options.getString('name');
+      if (modelArg) textCommand += ` ${modelArg}`;
+
+      // Acknowledge the interaction ephemerally
+      await interaction.reply({ content: `Running ${textCommand}...`, ephemeral: true });
+
+      // Route through the existing command handling as a regular message
+      this.opts.onMessage(chatJid, {
+        id: interaction.id,
+        chat_jid: chatJid,
+        sender,
+        sender_name: senderName,
+        content: textCommand,
+        timestamp,
+        is_from_me: false,
+      });
+    });
+
     // Handle errors gracefully
     this.client.on(Events.Error, (err) => {
       logger.error({ err: err.message }, 'Discord client error');
     });
 
     return new Promise<void>((resolve) => {
-      this.client!.once(Events.ClientReady, (readyClient) => {
+      this.client!.once(Events.ClientReady, async (readyClient) => {
+        // Register slash commands per-guild (instant update, no 1-hour cache)
+        try {
+          const rest = new REST({ version: '10' }).setToken(this.botToken);
+          const body = SLASH_COMMANDS.map((cmd) => cmd.toJSON());
+          const appId = readyClient.user.id;
+
+          // Clear stale global commands
+          await rest.put(Routes.applicationCommands(appId), { body: [] });
+
+          // Register per-guild for instant availability
+          for (const guild of readyClient.guilds.cache.values()) {
+            await rest.put(
+              Routes.applicationGuildCommands(appId, guild.id),
+              { body },
+            );
+            logger.info({ guild: guild.name }, 'Discord slash commands registered for guild');
+          }
+        } catch (err) {
+          logger.error({ err }, 'Failed to register Discord slash commands');
+        }
+
         logger.info(
           { username: readyClient.user.tag, id: readyClient.user.id },
           'Discord bot connected',

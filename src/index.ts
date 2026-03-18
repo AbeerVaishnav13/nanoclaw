@@ -16,6 +16,7 @@ import {
   getRegisteredChannelNames,
 } from './channels/registry.js';
 import {
+  ContainerInputImage,
   ContainerOutput,
   runContainerAgent,
   writeGroupsSnapshot,
@@ -94,6 +95,10 @@ let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
+
+// In-memory image cache: message ID → image attachments (transient, not stored in DB)
+// Evicted after the message is processed by the container agent.
+const pendingImages = new Map<string, ContainerInputImage[]>();
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
@@ -194,6 +199,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   if (missedMessages.length === 0) return true;
 
+  // Re-attach cached images — they are transient and not stored in DB
+  for (const msg of missedMessages) {
+    const cached = pendingImages.get(msg.id);
+    if (cached) msg.images = cached;
+  }
+
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
     const allowlistCfg = loadSenderAllowlist();
@@ -206,6 +217,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   const prompt = formatMessages(missedMessages, TIMEZONE);
+
+  // Collect image attachments from triggering messages (transient, not stored in DB)
+  const images = missedMessages.flatMap((m) => m.images ?? []);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -237,7 +251,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
+  const output = await runAgent(group, prompt, chatJid, images.length > 0 ? images : undefined, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.result) {
       const raw =
@@ -267,6 +281,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
 
+  // Evict processed images from cache
+  for (const msg of missedMessages) {
+    pendingImages.delete(msg.id);
+  }
+
   if (output === 'error' || hadError) {
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
@@ -294,6 +313,7 @@ async function runAgent(
   group: RegisteredGroup,
   prompt: string,
   chatJid: string,
+  images?: ContainerInputImage[],
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
@@ -348,6 +368,7 @@ async function runAgent(
         isMain,
         assistantName: ASSISTANT_NAME,
         model: groupSettings.model,
+        images,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -564,7 +585,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // Handle built-in slash commands (/new, /model, /help)
+  // Handle built-in slash commands (/new, /model, /help, /restart)
   async function handleCommand(
     trimmed: string,
     chatJid: string,
@@ -591,10 +612,11 @@ async function main(): Promise<void> {
           'Available commands:',
           '  /new — start a fresh conversation (clear session)',
           '  /model — show current model',
-          '  /model <name> — set model (sonnet, opus, haiku, or full model ID)',
+          '  /model <name> — set model (e.g. claude-sonnet-4-6, claude-opus-4-6, claude-haiku-4-5-20251001)',
+          '  /restart — restart nanoclaw (launchd will auto-restart)',
+          '  /build-restart — build then restart nanoclaw',
+          '  /update-nanoclaw — pull upstream updates, build, and restart',
           '  /help — show this help',
-          '  /remote-control — start Claude Code remote session',
-          '  /remote-control-end — stop remote session',
           '',
           `Current model: ${currentModel}`,
         ].join('\n'),
@@ -616,6 +638,48 @@ async function main(): Promise<void> {
       settings.model = resolved;
       writeGroupSettings(group.folder, settings);
       await channel.sendMessage(chatJid, `Model set to: ${resolved}`);
+      return true;
+    }
+
+    if (trimmed === '/restart') {
+      await channel.sendMessage(chatJid, 'Restarting nanoclaw... be right back!');
+      logger.info('Restart requested via /restart command');
+      setTimeout(() => process.exit(0), 500);
+      return true;
+    }
+
+    if (trimmed === '/build-restart') {
+      await channel.sendMessage(chatJid, 'Building nanoclaw...');
+      logger.info('Build+restart requested via /build-restart command');
+      const { exec } = await import('child_process');
+      exec('npm run build', { cwd: process.cwd() }, async (err, stdout, stderr) => {
+        if (err) {
+          logger.error({ err, stderr }, 'Build failed');
+          await channel.sendMessage(chatJid, `Build failed:\n${stderr || err.message}`);
+          return;
+        }
+        await channel.sendMessage(chatJid, 'Build succeeded! Restarting... be right back!');
+        logger.info('Build succeeded, restarting');
+        setTimeout(() => process.exit(0), 500);
+      });
+      return true;
+    }
+
+    if (trimmed === '/update-nanoclaw') {
+      await channel.sendMessage(chatJid, 'Pulling upstream updates...');
+      logger.info('Update requested via /update-nanoclaw command');
+      const { exec } = await import('child_process');
+      const cwd = process.cwd();
+      exec('git pull && npm install && npm run build', { cwd }, async (err, stdout, stderr) => {
+        if (err) {
+          logger.error({ err, stderr }, 'Update failed');
+          await channel.sendMessage(chatJid, `Update failed:\n${stderr || err.message}`);
+          return;
+        }
+        await channel.sendMessage(chatJid, 'Update succeeded! Restarting... be right back!');
+        logger.info('Update succeeded, restarting');
+        setTimeout(() => process.exit(0), 500);
+      });
       return true;
     }
 
@@ -660,6 +724,10 @@ async function main(): Promise<void> {
           }
           return;
         }
+      }
+      // Cache images before storing to DB (images are transient, not persisted)
+      if (msg.images && msg.images.length > 0) {
+        pendingImages.set(msg.id, msg.images);
       }
       storeMessage(msg);
     },

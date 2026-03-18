@@ -33,6 +33,12 @@ import { RegisteredGroup } from './types.js';
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
+export interface ContainerInputImage {
+  data: string; // base64-encoded JPEG
+  media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+  name: string;
+}
+
 export interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -42,6 +48,8 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   model?: string;
+  /** Base64-resized images to pass as multimodal content to Claude. */
+  images?: ContainerInputImage[];
 }
 
 export interface ContainerOutput {
