@@ -78,7 +78,10 @@ const MODEL_ALIASES: Record<string, string> = {
 
 function readGroupSettings(folder: string): GroupSettings {
   try {
-    const settingsPath = path.join(resolveGroupFolderPath(folder), 'nanoclaw.settings.json');
+    const settingsPath = path.join(
+      resolveGroupFolderPath(folder),
+      'nanoclaw.settings.json',
+    );
     return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
   } catch {
     return {};
@@ -86,7 +89,10 @@ function readGroupSettings(folder: string): GroupSettings {
 }
 
 function writeGroupSettings(folder: string, settings: GroupSettings): void {
-  const settingsPath = path.join(resolveGroupFolderPath(folder), 'nanoclaw.settings.json');
+  const settingsPath = path.join(
+    resolveGroupFolderPath(folder),
+    'nanoclaw.settings.json',
+  );
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 }
 
@@ -251,32 +257,41 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, images.length > 0 ? images : undefined, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
+  const output = await runAgent(
+    group,
+    prompt,
+    chatJid,
+    images.length > 0 ? images : undefined,
+    async (result) => {
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        logger.info(
+          { group: group.name },
+          `Agent output: ${raw.slice(0, 200)}`,
+        );
+        if (text) {
+          await channel.sendMessage(chatJid, text);
+          outputSentToUser = true;
+        }
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
       }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
 
-    if (result.status === 'success') {
-      queue.notifyIdle(chatJid);
-    }
+      if (result.status === 'success') {
+        queue.notifyIdle(chatJid);
+      }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  });
+      if (result.status === 'error') {
+        hadError = true;
+      }
+    },
+  );
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
@@ -642,7 +657,10 @@ async function main(): Promise<void> {
     }
 
     if (trimmed === '/restart') {
-      await channel.sendMessage(chatJid, 'Restarting nanoclaw... be right back!');
+      await channel.sendMessage(
+        chatJid,
+        'Restarting nanoclaw... be right back!',
+      );
       logger.info('Restart requested via /restart command');
       setTimeout(() => process.exit(0), 500);
       return true;
@@ -652,16 +670,26 @@ async function main(): Promise<void> {
       await channel.sendMessage(chatJid, 'Building nanoclaw...');
       logger.info('Build+restart requested via /build-restart command');
       const { exec } = await import('child_process');
-      exec('npm run build', { cwd: process.cwd() }, async (err, stdout, stderr) => {
-        if (err) {
-          logger.error({ err, stderr }, 'Build failed');
-          await channel.sendMessage(chatJid, `Build failed:\n${stderr || err.message}`);
-          return;
-        }
-        await channel.sendMessage(chatJid, 'Build succeeded! Restarting... be right back!');
-        logger.info('Build succeeded, restarting');
-        setTimeout(() => process.exit(0), 500);
-      });
+      exec(
+        'npm run build',
+        { cwd: process.cwd() },
+        async (err, stdout, stderr) => {
+          if (err) {
+            logger.error({ err, stderr }, 'Build failed');
+            await channel.sendMessage(
+              chatJid,
+              `Build failed:\n${stderr || err.message}`,
+            );
+            return;
+          }
+          await channel.sendMessage(
+            chatJid,
+            'Build succeeded! Restarting... be right back!',
+          );
+          logger.info('Build succeeded, restarting');
+          setTimeout(() => process.exit(0), 500);
+        },
+      );
       return true;
     }
 
@@ -670,16 +698,26 @@ async function main(): Promise<void> {
       logger.info('Update requested via /update-nanoclaw command');
       const { exec } = await import('child_process');
       const cwd = process.cwd();
-      exec('git pull && npm install && npm run build', { cwd }, async (err, stdout, stderr) => {
-        if (err) {
-          logger.error({ err, stderr }, 'Update failed');
-          await channel.sendMessage(chatJid, `Update failed:\n${stderr || err.message}`);
-          return;
-        }
-        await channel.sendMessage(chatJid, 'Update succeeded! Restarting... be right back!');
-        logger.info('Update succeeded, restarting');
-        setTimeout(() => process.exit(0), 500);
-      });
+      exec(
+        'git pull && npm install && npm run build',
+        { cwd },
+        async (err, stdout, stderr) => {
+          if (err) {
+            logger.error({ err, stderr }, 'Update failed');
+            await channel.sendMessage(
+              chatJid,
+              `Update failed:\n${stderr || err.message}`,
+            );
+            return;
+          }
+          await channel.sendMessage(
+            chatJid,
+            'Update succeeded! Restarting... be right back!',
+          );
+          logger.info('Update succeeded, restarting');
+          setTimeout(() => process.exit(0), 500);
+        },
+      );
       return true;
     }
 
@@ -700,12 +738,14 @@ async function main(): Promise<void> {
 
       // Built-in slash commands — intercept before storage
       if (trimmed.startsWith('/')) {
-        handleCommand(trimmed, chatJid).then((handled) => {
-          if (!handled) {
-            // Unknown command — pass through to agent as a regular message
-            storeMessage(msg);
-          }
-        }).catch((err) => logger.error({ err, chatJid }, 'Command error'));
+        handleCommand(trimmed, chatJid)
+          .then((handled) => {
+            if (!handled) {
+              // Unknown command — pass through to agent as a regular message
+              storeMessage(msg);
+            }
+          })
+          .catch((err) => logger.error({ err, chatJid }, 'Command error'));
         return;
       }
 

@@ -39,7 +39,10 @@ const SLASH_COMMANDS = [
         .addChoices(
           { name: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6' },
           { name: 'claude-opus-4-6', value: 'claude-opus-4-6' },
-          { name: 'claude-haiku-4-5-20251001', value: 'claude-haiku-4-5-20251001' },
+          {
+            name: 'claude-haiku-4-5-20251001',
+            value: 'claude-haiku-4-5-20251001',
+          },
         ),
     ),
   new SlashCommandBuilder()
@@ -65,7 +68,10 @@ const IMAGE_JPEG_QUALITY = 75;
  * Download a Discord image URL, resize to IMAGE_MAX_PX on longest side,
  * and return a base64-encoded JPEG for the Claude multimodal API.
  */
-async function fetchAndResizeImage(url: string, name: string): Promise<ImageAttachment | null> {
+async function fetchAndResizeImage(
+  url: string,
+  name: string,
+): Promise<ImageAttachment | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) {
@@ -76,7 +82,10 @@ async function fetchAndResizeImage(url: string, name: string): Promise<ImageAtta
     const buffer = Buffer.from(arrayBuffer);
 
     const resized = await sharp(buffer)
-      .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, { fit: 'inside', withoutEnlargement: true })
+      .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
       .jpeg({ quality: IMAGE_JPEG_QUALITY })
       .toBuffer();
 
@@ -246,37 +255,44 @@ export class DiscordChannel implements Channel {
     });
 
     // Handle slash command interactions
-    this.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
-      if (!interaction.isChatInputCommand()) return;
+    this.client.on(
+      Events.InteractionCreate,
+      async (interaction: Interaction) => {
+        if (!interaction.isChatInputCommand()) return;
 
-      const channelId = interaction.channelId;
-      const chatJid = `dc:${channelId}`;
-      const sender = interaction.user.id;
-      const senderName =
-        interaction.guild
-          ? (interaction.member as any)?.displayName || interaction.user.displayName || interaction.user.username
+        const channelId = interaction.channelId;
+        const chatJid = `dc:${channelId}`;
+        const sender = interaction.user.id;
+        const senderName = interaction.guild
+          ? (interaction.member as any)?.displayName ||
+            interaction.user.displayName ||
+            interaction.user.username
           : interaction.user.displayName || interaction.user.username;
-      const timestamp = interaction.createdAt.toISOString();
+        const timestamp = interaction.createdAt.toISOString();
 
-      // Build equivalent text command
-      let textCommand = `/${interaction.commandName}`;
-      const modelArg = interaction.options.getString('name');
-      if (modelArg) textCommand += ` ${modelArg}`;
+        // Build equivalent text command
+        let textCommand = `/${interaction.commandName}`;
+        const modelArg = interaction.options.getString('name');
+        if (modelArg) textCommand += ` ${modelArg}`;
 
-      // Acknowledge the interaction ephemerally
-      await interaction.reply({ content: `Running ${textCommand}...`, ephemeral: true });
+        // Acknowledge the interaction ephemerally
+        await interaction.reply({
+          content: `Running ${textCommand}...`,
+          ephemeral: true,
+        });
 
-      // Route through the existing command handling as a regular message
-      this.opts.onMessage(chatJid, {
-        id: interaction.id,
-        chat_jid: chatJid,
-        sender,
-        sender_name: senderName,
-        content: textCommand,
-        timestamp,
-        is_from_me: false,
-      });
-    });
+        // Route through the existing command handling as a regular message
+        this.opts.onMessage(chatJid, {
+          id: interaction.id,
+          chat_jid: chatJid,
+          sender,
+          sender_name: senderName,
+          content: textCommand,
+          timestamp,
+          is_from_me: false,
+        });
+      },
+    );
 
     // Handle errors gracefully
     this.client.on(Events.Error, (err) => {
@@ -296,11 +312,13 @@ export class DiscordChannel implements Channel {
 
           // Register per-guild for instant availability
           for (const guild of readyClient.guilds.cache.values()) {
-            await rest.put(
-              Routes.applicationGuildCommands(appId, guild.id),
-              { body },
+            await rest.put(Routes.applicationGuildCommands(appId, guild.id), {
+              body,
+            });
+            logger.info(
+              { guild: guild.name },
+              'Discord slash commands registered for guild',
             );
-            logger.info({ guild: guild.name }, 'Discord slash commands registered for guild');
           }
         } catch (err) {
           logger.error({ err }, 'Failed to register Discord slash commands');
