@@ -59,7 +59,8 @@ import {
   shouldDropMessage,
 } from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
-import { Channel, NewMessage, RegisteredGroup } from './types.js';
+import { validateMount, expandPath } from './mount-security.js';
+import { AdditionalMount, Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
 // Re-export for backwards compatibility during refactor
@@ -628,6 +629,10 @@ async function main(): Promise<void> {
           '  /new — start a fresh conversation (clear session)',
           '  /model — show current model',
           '  /model <name> — set model (e.g. claude-sonnet-4-6, claude-opus-4-6, claude-haiku-4-5-20251001)',
+          '  /mount-dir <path> [name] [rw] — mount a directory into the agent container',
+          '  /unmount-dir <name> — unmount a directory from the agent container',
+          '  /la — list all mounted directories with file tree',
+          '  /ls <path> — list files in a mounted directory (e.g. /ls myrepo/src)',
           '  /restart — restart nanoclaw (launchd will auto-restart)',
           '  /build-restart — build then restart nanoclaw',
           '  /update-nanoclaw — pull upstream updates, build, and restart',
@@ -718,6 +723,202 @@ async function main(): Promise<void> {
           setTimeout(() => process.exit(0), 500);
         },
       );
+      return true;
+    }
+
+    if (trimmed.startsWith('/mount-dir ')) {
+      const args = trimmed.slice('/mount-dir '.length).trim().split(/\s+/);
+      const hostPath = args[0];
+      if (!hostPath) {
+        await channel.sendMessage(chatJid, 'Usage: /mount-dir <path> [name] [rw]');
+        return true;
+      }
+      const isRw = args.includes('rw');
+      const nameArg = args.find((a) => a !== hostPath && a !== 'rw');
+      const containerPath = nameArg || path.basename(expandPath(hostPath));
+
+      const mount: AdditionalMount = {
+        hostPath,
+        containerPath,
+        readonly: !isRw,
+      };
+
+      const result = validateMount(mount, group.isMain === true);
+      if (!result.allowed) {
+        await channel.sendMessage(chatJid, `Mount rejected: ${result.reason}`);
+        return true;
+      }
+
+      // Add to group config
+      if (!group.containerConfig) group.containerConfig = {};
+      if (!group.containerConfig.additionalMounts) group.containerConfig.additionalMounts = [];
+
+      // Check for duplicate
+      const existing = group.containerConfig.additionalMounts.find(
+        (m) => (m.containerPath || path.basename(m.hostPath)) === containerPath,
+      );
+      if (existing) {
+        await channel.sendMessage(chatJid, `Already mounted as "${containerPath}". Unmount first to change.`);
+        return true;
+      }
+
+      group.containerConfig.additionalMounts.push(mount);
+      setRegisteredGroup(chatJid, group);
+      registeredGroups[chatJid] = group;
+
+      const rwLabel = result.effectiveReadonly ? 'ro' : 'rw';
+      await channel.sendMessage(
+        chatJid,
+        `Mounted: /workspace/extra/${containerPath} <- ${hostPath} [${rwLabel}]`,
+      );
+      return true;
+    }
+
+    if (trimmed.startsWith('/unmount-dir ')) {
+      const name = trimmed.slice('/unmount-dir '.length).trim();
+      if (!name) {
+        await channel.sendMessage(chatJid, 'Usage: /unmount-dir <name>');
+        return true;
+      }
+
+      const mounts = group.containerConfig?.additionalMounts || [];
+      const idx = mounts.findIndex(
+        (m) => (m.containerPath || path.basename(m.hostPath)) === name,
+      );
+      if (idx === -1) {
+        await channel.sendMessage(chatJid, `No mount named "${name}" found.`);
+        return true;
+      }
+
+      mounts.splice(idx, 1);
+      if (!group.containerConfig) group.containerConfig = {};
+      group.containerConfig.additionalMounts = mounts;
+      setRegisteredGroup(chatJid, group);
+      registeredGroups[chatJid] = group;
+
+      await channel.sendMessage(chatJid, `Unmounted: ${name}`);
+      return true;
+    }
+
+    if (trimmed === '/la') {
+      const mounts = group.containerConfig?.additionalMounts || [];
+      if (mounts.length === 0) {
+        await channel.sendMessage(chatJid, 'No extra directories mounted.');
+        return true;
+      }
+      const lines: string[] = ['Mounted directories:', '', '```'];
+      for (const m of mounts) {
+        const containerName = m.containerPath || path.basename(m.hostPath);
+        const rwLabel = m.readonly === false ? 'rw' : 'ro';
+        lines.push(
+          `/workspace/extra/${containerName} <- ${m.hostPath} [${rwLabel}]`,
+        );
+        try {
+          const expanded = expandPath(m.hostPath);
+          const topEntries = fs.readdirSync(expanded, { withFileTypes: true });
+          const capped = topEntries.slice(0, 30);
+          for (let i = 0; i < capped.length; i++) {
+            const entry = capped[i];
+            const isLast =
+              i === capped.length - 1 && topEntries.length <= 30;
+            const connector = isLast ? '\u2514\u2500\u2500' : '\u251C\u2500\u2500';
+            const suffix = entry.isDirectory() ? '/' : '';
+            lines.push(`${connector} ${entry.name}${suffix}`);
+            // Recurse into visible directories only (skip hidden dirs)
+            if (entry.isDirectory() && !entry.name.startsWith('.')) {
+              const pipe = isLast ? '    ' : '\u2502   ';
+              try {
+                const subEntries = fs.readdirSync(
+                  path.join(expanded, entry.name),
+                  { withFileTypes: true },
+                );
+                const subCapped = subEntries.slice(0, 15);
+                for (let j = 0; j < subCapped.length; j++) {
+                  const sub = subCapped[j];
+                  const subIsLast =
+                    j === subCapped.length - 1 && subEntries.length <= 15;
+                  const subConnector = subIsLast ? '\u2514\u2500\u2500' : '\u251C\u2500\u2500';
+                  const subSuffix = sub.isDirectory() ? '/' : '';
+                  lines.push(`${pipe}${subConnector} ${sub.name}${subSuffix}`);
+                }
+                if (subEntries.length > 15) {
+                  lines.push(
+                    `${pipe}\u2514\u2500\u2500 ... and ${subEntries.length - 15} more`,
+                  );
+                }
+              } catch {
+                // Permission denied or other read error
+              }
+            }
+          }
+          if (topEntries.length > 30) {
+            lines.push(
+              `\u2514\u2500\u2500 ... and ${topEntries.length - 30} more`,
+            );
+          }
+        } catch {
+          lines.push('(unable to read directory)');
+        }
+      }
+      lines.push('```');
+      await channel.sendMessage(chatJid, lines.join('\n'));
+      return true;
+    }
+
+    if (trimmed.startsWith('/ls ')) {
+      const rawArg = trimmed.slice('/ls '.length).trim();
+      if (!rawArg) {
+        await channel.sendMessage(chatJid, 'Usage: /ls <path> (e.g. /ls myrepo/src)');
+        return true;
+      }
+
+      // Auto-prepend /workspace/extra/ so the user only types the relative part
+      const containerPath = rawArg.startsWith('/workspace/extra/')
+        ? rawArg
+        : `/workspace/extra/${rawArg.replace(/^\/+/, '')}`;
+
+      const mounts = group.containerConfig?.additionalMounts || [];
+      let matchedMount: AdditionalMount | null = null;
+      let mountPrefix = '';
+
+      for (const m of mounts) {
+        const containerName = m.containerPath || path.basename(m.hostPath);
+        const prefix = `/workspace/extra/${containerName}`;
+        if (containerPath === prefix || containerPath.startsWith(prefix + '/')) {
+          matchedMount = m;
+          mountPrefix = prefix;
+          break;
+        }
+      }
+
+      if (!matchedMount) {
+        await channel.sendMessage(chatJid, 'Path not found in any mounted directory.');
+        return true;
+      }
+
+      const expanded = expandPath(matchedMount.hostPath);
+      const relativePath = containerPath.slice(mountPrefix.length);
+      const hostPath = relativePath ? path.join(expanded, relativePath) : expanded;
+
+      try {
+        const entries = fs.readdirSync(hostPath, { withFileTypes: true });
+        const capped = entries.slice(0, 50);
+        const lines: string[] = [`${containerPath}:`, '', '```'];
+        for (let i = 0; i < capped.length; i++) {
+          const entry = capped[i];
+          const isLast = i === capped.length - 1 && entries.length <= 50;
+          const connector = isLast ? '\u2514\u2500\u2500' : '\u251C\u2500\u2500';
+          const suffix = entry.isDirectory() ? '/' : '';
+          lines.push(`${connector} ${entry.name}${suffix}`);
+        }
+        if (entries.length > 50) {
+          lines.push(`\u2514\u2500\u2500 ... and ${entries.length - 50} more`);
+        }
+        lines.push('```');
+        await channel.sendMessage(chatJid, lines.join('\n'));
+      } catch {
+        await channel.sendMessage(chatJid, `Unable to read: ${containerPath}`);
+      }
       return true;
     }
 

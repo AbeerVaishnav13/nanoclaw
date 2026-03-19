@@ -10,6 +10,7 @@ import {
   TextChannel,
 } from 'discord.js';
 import sharp from 'sharp';
+import path from 'path';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -57,6 +58,43 @@ const SLASH_COMMANDS = [
   new SlashCommandBuilder()
     .setName('update-nanoclaw')
     .setDescription('Pull upstream NanoClaw updates, build, and restart'),
+  new SlashCommandBuilder()
+    .setName('mount-dir')
+    .setDescription('Mount an extra directory into the agent container')
+    .addStringOption((opt) =>
+      opt.setName('path').setDescription('Host path (e.g. ~/projects/myrepo)').setRequired(true),
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName('name')
+        .setDescription('Container name (default: directory basename)')
+        .setRequired(false),
+    )
+    .addBooleanOption((opt) =>
+      opt.setName('rw').setDescription('Mount read-write (default: read-only)').setRequired(false),
+    ),
+  new SlashCommandBuilder()
+    .setName('unmount-dir')
+    .setDescription('Unmount an extra directory from the agent container')
+    .addStringOption((opt) =>
+      opt
+        .setName('name')
+        .setDescription('Container name to unmount')
+        .setRequired(true)
+        .setAutocomplete(true),
+    ),
+  new SlashCommandBuilder()
+    .setName('la')
+    .setDescription('List all mounted extra directories with file tree'),
+  new SlashCommandBuilder()
+    .setName('ls')
+    .setDescription('List files in a mounted directory')
+    .addStringOption((opt) =>
+      opt
+        .setName('path')
+        .setDescription('Path under /workspace/extra (e.g. myrepo/src)')
+        .setRequired(true),
+    ),
 ];
 
 /** Max pixel dimension for images passed to Claude. Keeps token cost low. */
@@ -254,6 +292,27 @@ export class DiscordChannel implements Channel {
       );
     });
 
+    // Handle autocomplete interactions (e.g. /unmount-dir name suggestions)
+    this.client.on(
+      Events.InteractionCreate,
+      async (interaction: Interaction) => {
+        if (!interaction.isAutocomplete()) return;
+
+        if (interaction.commandName === 'unmount-dir') {
+          const chatJid = `dc:${interaction.channelId}`;
+          const group = this.opts.registeredGroups()[chatJid];
+          const mounts = group?.containerConfig?.additionalMounts || [];
+          const focused = interaction.options.getFocused().toLowerCase();
+          const choices = mounts
+            .map((m) => m.containerPath || path.basename(m.hostPath))
+            .filter((name) => name.toLowerCase().includes(focused))
+            .slice(0, 25)
+            .map((name) => ({ name, value: name }));
+          await interaction.respond(choices);
+        }
+      },
+    );
+
     // Handle slash command interactions
     this.client.on(
       Events.InteractionCreate,
@@ -274,6 +333,10 @@ export class DiscordChannel implements Channel {
         let textCommand = `/${interaction.commandName}`;
         const modelArg = interaction.options.getString('name');
         if (modelArg) textCommand += ` ${modelArg}`;
+        const pathArg = interaction.options.getString('path');
+        if (pathArg) textCommand += ` ${pathArg}`;
+        const rwArg = interaction.options.getBoolean('rw');
+        if (rwArg !== null && rwArg !== undefined) textCommand += rwArg ? ' rw' : '';
 
         // Acknowledge the interaction ephemerally
         await interaction.reply({
