@@ -156,6 +156,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // TODO: find better notification method for repos with issues disabled
+            // e.g. check repo.has_issues first, or use workflow summary / Discord webhook
             try {
               await github.rest.issues.create({
                 owner: context.repo.owner,
@@ -186,6 +188,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // TODO: find better notification method for repos with issues disabled
+            // e.g. check repo.has_issues first, or use workflow summary / Discord webhook
             const failed = '${{ steps.merge.outputs.failed }}'.trim().split(/\s+/);
             const body = [
               `The merge-forward workflow failed to merge \`main\` into the following skill branches:`,
