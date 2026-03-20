@@ -60,7 +60,12 @@ import {
 } from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { validateMount, expandPath } from './mount-security.js';
-import { AdditionalMount, Channel, NewMessage, RegisteredGroup } from './types.js';
+import {
+  AdditionalMount,
+  Channel,
+  NewMessage,
+  RegisteredGroup,
+} from './types.js';
 import { logger } from './logger.js';
 
 // Re-export for backwards compatibility during refactor
@@ -698,6 +703,29 @@ async function main(): Promise<void> {
       return true;
     }
 
+    if (trimmed === '/rebuild-container') {
+      await channel.sendMessage(chatJid, 'Rebuilding Docker container image...');
+      logger.info('Container rebuild requested via /rebuild-container command');
+      const { exec } = await import('child_process');
+      exec(
+        './container/build.sh',
+        { cwd: process.cwd() },
+        async (err, stdout, stderr) => {
+          if (err) {
+            logger.error({ err, stderr }, 'Container build failed');
+            await channel.sendMessage(
+              chatJid,
+              `Container build failed:\n${stderr || err.message}`,
+            );
+            return;
+          }
+          await channel.sendMessage(chatJid, 'Container image rebuilt successfully! ✅');
+          logger.info('Container build succeeded');
+        },
+      );
+      return true;
+    }
+
     if (trimmed === '/update-nanoclaw') {
       await channel.sendMessage(chatJid, 'Pulling upstream updates...');
       logger.info('Update requested via /update-nanoclaw command');
@@ -730,7 +758,10 @@ async function main(): Promise<void> {
       const args = trimmed.slice('/mount-dir '.length).trim().split(/\s+/);
       const hostPath = args[0];
       if (!hostPath) {
-        await channel.sendMessage(chatJid, 'Usage: /mount-dir <path> [name] [rw]');
+        await channel.sendMessage(
+          chatJid,
+          'Usage: /mount-dir <path> [name] [rw]',
+        );
         return true;
       }
       const isRw = args.includes('rw');
@@ -751,14 +782,18 @@ async function main(): Promise<void> {
 
       // Add to group config
       if (!group.containerConfig) group.containerConfig = {};
-      if (!group.containerConfig.additionalMounts) group.containerConfig.additionalMounts = [];
+      if (!group.containerConfig.additionalMounts)
+        group.containerConfig.additionalMounts = [];
 
       // Check for duplicate
       const existing = group.containerConfig.additionalMounts.find(
         (m) => (m.containerPath || path.basename(m.hostPath)) === containerPath,
       );
       if (existing) {
-        await channel.sendMessage(chatJid, `Already mounted as "${containerPath}". Unmount first to change.`);
+        await channel.sendMessage(
+          chatJid,
+          `Already mounted as "${containerPath}". Unmount first to change.`,
+        );
         return true;
       }
 
@@ -819,9 +854,10 @@ async function main(): Promise<void> {
           const capped = topEntries.slice(0, 30);
           for (let i = 0; i < capped.length; i++) {
             const entry = capped[i];
-            const isLast =
-              i === capped.length - 1 && topEntries.length <= 30;
-            const connector = isLast ? '\u2514\u2500\u2500' : '\u251C\u2500\u2500';
+            const isLast = i === capped.length - 1 && topEntries.length <= 30;
+            const connector = isLast
+              ? '\u2514\u2500\u2500'
+              : '\u251C\u2500\u2500';
             const suffix = entry.isDirectory() ? '/' : '';
             lines.push(`${connector} ${entry.name}${suffix}`);
             // Recurse into visible directories only (skip hidden dirs)
@@ -837,7 +873,9 @@ async function main(): Promise<void> {
                   const sub = subCapped[j];
                   const subIsLast =
                     j === subCapped.length - 1 && subEntries.length <= 15;
-                  const subConnector = subIsLast ? '\u2514\u2500\u2500' : '\u251C\u2500\u2500';
+                  const subConnector = subIsLast
+                    ? '\u2514\u2500\u2500'
+                    : '\u251C\u2500\u2500';
                   const subSuffix = sub.isDirectory() ? '/' : '';
                   lines.push(`${pipe}${subConnector} ${sub.name}${subSuffix}`);
                 }
@@ -868,7 +906,10 @@ async function main(): Promise<void> {
     if (trimmed.startsWith('/ls ')) {
       const rawArg = trimmed.slice('/ls '.length).trim();
       if (!rawArg) {
-        await channel.sendMessage(chatJid, 'Usage: /ls <path> (e.g. /ls myrepo/src)');
+        await channel.sendMessage(
+          chatJid,
+          'Usage: /ls <path> (e.g. /ls myrepo/src)',
+        );
         return true;
       }
 
@@ -884,7 +925,10 @@ async function main(): Promise<void> {
       for (const m of mounts) {
         const containerName = m.containerPath || path.basename(m.hostPath);
         const prefix = `/workspace/extra/${containerName}`;
-        if (containerPath === prefix || containerPath.startsWith(prefix + '/')) {
+        if (
+          containerPath === prefix ||
+          containerPath.startsWith(prefix + '/')
+        ) {
           matchedMount = m;
           mountPrefix = prefix;
           break;
@@ -892,13 +936,18 @@ async function main(): Promise<void> {
       }
 
       if (!matchedMount) {
-        await channel.sendMessage(chatJid, 'Path not found in any mounted directory.');
+        await channel.sendMessage(
+          chatJid,
+          'Path not found in any mounted directory.',
+        );
         return true;
       }
 
       const expanded = expandPath(matchedMount.hostPath);
       const relativePath = containerPath.slice(mountPrefix.length);
-      const hostPath = relativePath ? path.join(expanded, relativePath) : expanded;
+      const hostPath = relativePath
+        ? path.join(expanded, relativePath)
+        : expanded;
 
       try {
         const entries = fs.readdirSync(hostPath, { withFileTypes: true });
@@ -907,7 +956,9 @@ async function main(): Promise<void> {
         for (let i = 0; i < capped.length; i++) {
           const entry = capped[i];
           const isLast = i === capped.length - 1 && entries.length <= 50;
-          const connector = isLast ? '\u2514\u2500\u2500' : '\u251C\u2500\u2500';
+          const connector = isLast
+            ? '\u2514\u2500\u2500'
+            : '\u251C\u2500\u2500';
           const suffix = entry.isDirectory() ? '/' : '';
           lines.push(`${connector} ${entry.name}${suffix}`);
         }

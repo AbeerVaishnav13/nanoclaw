@@ -62,7 +62,10 @@ const SLASH_COMMANDS = [
     .setName('mount-dir')
     .setDescription('Mount an extra directory into the agent container')
     .addStringOption((opt) =>
-      opt.setName('path').setDescription('Host path (e.g. ~/projects/myrepo)').setRequired(true),
+      opt
+        .setName('path')
+        .setDescription('Host path (e.g. ~/projects/myrepo)')
+        .setRequired(true),
     )
     .addStringOption((opt) =>
       opt
@@ -71,7 +74,10 @@ const SLASH_COMMANDS = [
         .setRequired(false),
     )
     .addBooleanOption((opt) =>
-      opt.setName('rw').setDescription('Mount read-write (default: read-only)').setRequired(false),
+      opt
+        .setName('rw')
+        .setDescription('Mount read-write (default: read-only)')
+        .setRequired(false),
     ),
   new SlashCommandBuilder()
     .setName('unmount-dir')
@@ -95,6 +101,9 @@ const SLASH_COMMANDS = [
         .setDescription('Path under /workspace/extra (e.g. myrepo/src)')
         .setRequired(true),
     ),
+  new SlashCommandBuilder()
+    .setName('rebuild-container')
+    .setDescription('Rebuild the Docker agent container image (runs container/build.sh)'),
 ];
 
 /** Max pixel dimension for images passed to Claude. Keeps token cost low. */
@@ -336,7 +345,8 @@ export class DiscordChannel implements Channel {
         const pathArg = interaction.options.getString('path');
         if (pathArg) textCommand += ` ${pathArg}`;
         const rwArg = interaction.options.getBoolean('rw');
-        if (rwArg !== null && rwArg !== undefined) textCommand += rwArg ? ' rw' : '';
+        if (rwArg !== null && rwArg !== undefined)
+          textCommand += rwArg ? ' rw' : '';
 
         // Acknowledge the interaction ephemerally
         await interaction.reply({
