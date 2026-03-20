@@ -704,7 +704,10 @@ async function main(): Promise<void> {
     }
 
     if (trimmed === '/rebuild-container') {
-      await channel.sendMessage(chatJid, 'Rebuilding Docker container image...');
+      await channel.sendMessage(
+        chatJid,
+        'Rebuilding Docker container image...',
+      );
       logger.info('Container rebuild requested via /rebuild-container command');
       const { exec } = await import('child_process');
       exec(
@@ -719,7 +722,10 @@ async function main(): Promise<void> {
             );
             return;
           }
-          await channel.sendMessage(chatJid, 'Container image rebuilt successfully! ✅');
+          await channel.sendMessage(
+            chatJid,
+            'Container image rebuilt successfully! ✅',
+          );
           logger.info('Container build succeeded');
         },
       );

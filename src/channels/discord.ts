@@ -103,7 +103,9 @@ const SLASH_COMMANDS = [
     ),
   new SlashCommandBuilder()
     .setName('rebuild-container')
-    .setDescription('Rebuild the Docker agent container image (runs container/build.sh)'),
+    .setDescription(
+      'Rebuild the Docker agent container image (runs container/build.sh)',
+    ),
 ];
 
 /** Max pixel dimension for images passed to Claude. Keeps token cost low. */
