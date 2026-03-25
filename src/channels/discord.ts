@@ -122,11 +122,13 @@ async function fetchAndResizeImage(
   name: string,
 ): Promise<ImageAttachment | null> {
   try {
+    logger.info({ url, name }, 'Fetching Discord image attachment');
     const res = await fetch(url);
     if (!res.ok) {
       logger.warn({ url, status: res.status }, 'Failed to fetch Discord image');
       return null;
     }
+    logger.info({ name, status: res.status }, 'Discord image fetched, resizing');
     const arrayBuffer = await res.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
@@ -138,6 +140,7 @@ async function fetchAndResizeImage(
       .jpeg({ quality: IMAGE_JPEG_QUALITY })
       .toBuffer();
 
+    logger.info({ name, bytes: resized.length }, 'Discord image resized OK');
     return {
       data: resized.toString('base64'),
       media_type: 'image/jpeg',

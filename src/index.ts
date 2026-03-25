@@ -735,7 +735,7 @@ async function main(): Promise<void> {
       const { exec } = await import('child_process');
       const cwd = process.cwd();
       exec(
-        'git pull && npm install && npm run build',
+        `git pull "https://${process.env.GITHUB_TOKEN ? `${process.env.GITHUB_TOKEN}@` : ''}github.com/AbeerVaishnav13/nanoclaw.git" main && npm install && npm run build`,
         { cwd },
         async (err, stdout, stderr) => {
           if (err) {
