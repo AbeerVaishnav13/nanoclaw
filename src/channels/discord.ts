@@ -128,7 +128,10 @@ async function fetchAndResizeImage(
       logger.warn({ url, status: res.status }, 'Failed to fetch Discord image');
       return null;
     }
-    logger.info({ name, status: res.status }, 'Discord image fetched, resizing');
+    logger.info(
+      { name, status: res.status },
+      'Discord image fetched, resizing',
+    );
     const arrayBuffer = await res.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
