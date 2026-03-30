@@ -11,3 +11,6 @@ import './discord.js';
 // telegram
 
 // whatsapp
+
+// emacs
+import './emacs.js';
