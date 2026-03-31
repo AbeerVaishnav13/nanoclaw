@@ -108,13 +108,17 @@ const SLASH_COMMANDS = [
     ),
   new SlashCommandBuilder()
     .setName('status')
-    .setDescription('Quick health check — session, workspace, tools, and scheduled tasks'),
+    .setDescription(
+      'Quick health check — session, workspace, tools, and scheduled tasks',
+    ),
   new SlashCommandBuilder()
     .setName('capabilities')
     .setDescription('Show installed skills, tools, and system info'),
   new SlashCommandBuilder()
     .setName('remote-control')
-    .setDescription('Start or resume a Claude remote-control session (main group only)'),
+    .setDescription(
+      'Start or resume a Claude remote-control session (main group only)',
+    ),
   new SlashCommandBuilder()
     .setName('remote-control-end')
     .setDescription('Stop the active remote-control session'),
