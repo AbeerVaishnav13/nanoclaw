@@ -92,22 +92,54 @@ vi.mock('discord.js', () => {
   // Mock TextChannel type
   class TextChannel {}
 
-  const mockOption = (): any => new Proxy({}, { get: () => (...args: any[]) => { if (typeof args[0] === 'function') args[0](mockOption()); return mockOption(); } });
+  const mockOption = (): any =>
+    new Proxy(
+      {},
+      {
+        get:
+          () =>
+          (...args: any[]) => {
+            if (typeof args[0] === 'function') args[0](mockOption());
+            return mockOption();
+          },
+      },
+    );
 
   class MockSlashCommandBuilder {
     name = '';
     description = '';
-    setName(n: string) { this.name = n; return this; }
-    setDescription(d: string) { this.description = d; return this; }
-    addStringOption(fn: any) { fn(mockOption()); return this; }
-    addBooleanOption(fn: any) { fn(mockOption()); return this; }
-    addIntegerOption(fn: any) { fn(mockOption()); return this; }
-    toJSON() { return { name: this.name, description: this.description }; }
+    setName(n: string) {
+      this.name = n;
+      return this;
+    }
+    setDescription(d: string) {
+      this.description = d;
+      return this;
+    }
+    addStringOption(fn: any) {
+      fn(mockOption());
+      return this;
+    }
+    addBooleanOption(fn: any) {
+      fn(mockOption());
+      return this;
+    }
+    addIntegerOption(fn: any) {
+      fn(mockOption());
+      return this;
+    }
+    toJSON() {
+      return { name: this.name, description: this.description };
+    }
   }
 
   class MockREST {
-    setToken() { return this; }
-    put() { return Promise.resolve(); }
+    setToken() {
+      return this;
+    }
+    put() {
+      return Promise.resolve();
+    }
   }
 
   return {

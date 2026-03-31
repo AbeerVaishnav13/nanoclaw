@@ -106,6 +106,18 @@ const SLASH_COMMANDS = [
     .setDescription(
       'Rebuild the Docker agent container image (runs container/build.sh)',
     ),
+  new SlashCommandBuilder()
+    .setName('status')
+    .setDescription('Quick health check — session, workspace, tools, and scheduled tasks'),
+  new SlashCommandBuilder()
+    .setName('capabilities')
+    .setDescription('Show installed skills, tools, and system info'),
+  new SlashCommandBuilder()
+    .setName('remote-control')
+    .setDescription('Start or resume a Claude remote-control session (main group only)'),
+  new SlashCommandBuilder()
+    .setName('remote-control-end')
+    .setDescription('Stop the active remote-control session'),
 ];
 
 /** Max pixel dimension for images passed to Claude. Keeps token cost low. */
