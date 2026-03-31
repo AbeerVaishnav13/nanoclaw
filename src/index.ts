@@ -3,7 +3,6 @@ import path from 'path';
 
 import {
   ASSISTANT_NAME,
-  CREDENTIAL_PROXY_PORT,
   DEFAULT_TRIGGER,
   getTriggerPattern,
   GROUPS_DIR,
@@ -12,6 +11,11 @@ import {
   POLL_INTERVAL,
   TIMEZONE,
 } from './config.js';
+
+const CREDENTIAL_PROXY_PORT = parseInt(
+  process.env.CREDENTIAL_PROXY_PORT || '3001',
+  10,
+);
 import { startCredentialProxy } from './credential-proxy.js';
 import './channels/index.js';
 import {
@@ -28,8 +32,9 @@ import {
 import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
-  PROXY_BIND_HOST,
 } from './container-runtime.js';
+
+const PROXY_BIND_HOST = process.env.CREDENTIAL_PROXY_HOST || '0.0.0.0';
 import {
   getAllChats,
   getAllRegisteredGroups,
