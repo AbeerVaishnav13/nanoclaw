@@ -15,6 +15,7 @@ import path from 'path';
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
+import { loadMountAllowlist } from '../mount-security.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
@@ -47,6 +48,11 @@ const SLASH_COMMANDS = [
           { name: 'glm-5.1', value: 'glm-5.1' },
           { name: 'glm-5', value: 'glm-5' },
           { name: 'glm-4.7', value: 'glm-4.7' },
+          { name: 'glm-5-turbo', value: 'glm-5-turbo' },
+          {
+            name: 'google/gemma-4-31b-it:free',
+            value: 'google/gemma-4-31b-it:free',
+          },
         ),
     ),
   new SlashCommandBuilder()
@@ -67,14 +73,9 @@ const SLASH_COMMANDS = [
     .addStringOption((opt) =>
       opt
         .setName('path')
-        .setDescription('Host path (e.g. ~/projects/myrepo)')
-        .setRequired(true),
-    )
-    .addStringOption((opt) =>
-      opt
-        .setName('name')
-        .setDescription('Container name (default: directory basename)')
-        .setRequired(false),
+        .setDescription('Select a directory from the allowlist')
+        .setRequired(true)
+        .setAutocomplete(true),
     )
     .addBooleanOption((opt) =>
       opt
@@ -87,8 +88,8 @@ const SLASH_COMMANDS = [
     .setDescription('Unmount an extra directory from the agent container')
     .addStringOption((opt) =>
       opt
-        .setName('name')
-        .setDescription('Container name to unmount')
+        .setName('path')
+        .setDescription('Host path to unmount')
         .setRequired(true)
         .setAutocomplete(true),
     ),
@@ -253,8 +254,8 @@ export class DiscordChannel implements Channel {
       const imageAttachments: ImageAttachment[] = [];
       if (message.attachments.size > 0) {
         // Check for image attachments — Z.AI models don't support image input
-        const hasImage = [...message.attachments.values()].some(
-          (att) => (att.contentType || '').startsWith('image/'),
+        const hasImage = [...message.attachments.values()].some((att) =>
+          (att.contentType || '').startsWith('image/'),
         );
         if (hasImage) {
           await message.reply(
@@ -339,11 +340,36 @@ export class DiscordChannel implements Channel {
       );
     });
 
-    // Handle autocomplete interactions (e.g. /unmount-dir name suggestions)
+    // Handle autocomplete interactions (e.g. /mount-dir and /unmount-dir suggestions)
     this.client.on(
       Events.InteractionCreate,
       async (interaction: Interaction) => {
         if (!interaction.isAutocomplete()) return;
+
+        if (interaction.commandName === 'mount-dir') {
+          const allowlist = loadMountAllowlist();
+          if (!allowlist) {
+            await interaction.respond([]);
+            return;
+          }
+          const chatJid = `dc:${interaction.channelId}`;
+          const group = this.opts.registeredGroups()[chatJid];
+          const mountedPaths = new Set(
+            (group?.containerConfig?.additionalMounts || []).map(
+              (m) => m.hostPath,
+            ),
+          );
+          const focused = interaction.options.getFocused().toLowerCase();
+          const choices = allowlist.allowedRoots
+            .filter((r) => !mountedPaths.has(r.path))
+            .filter((r) => r.path.toLowerCase().includes(focused))
+            .slice(0, 25)
+            .map((r) => ({
+              name: r.description ? `${r.path} — ${r.description}` : r.path,
+              value: r.path,
+            }));
+          await interaction.respond(choices);
+        }
 
         if (interaction.commandName === 'unmount-dir') {
           const chatJid = `dc:${interaction.channelId}`;
@@ -351,10 +377,12 @@ export class DiscordChannel implements Channel {
           const mounts = group?.containerConfig?.additionalMounts || [];
           const focused = interaction.options.getFocused().toLowerCase();
           const choices = mounts
-            .map((m) => m.containerPath || path.basename(m.hostPath))
-            .filter((name) => name.toLowerCase().includes(focused))
+            .filter((m) => m.hostPath.toLowerCase().includes(focused))
             .slice(0, 25)
-            .map((name) => ({ name, value: name }));
+            .map((m) => ({
+              name: m.hostPath,
+              value: m.hostPath,
+            }));
           await interaction.respond(choices);
         }
       },

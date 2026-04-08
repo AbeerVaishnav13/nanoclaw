@@ -97,8 +97,10 @@ const MODEL_ALIASES: Record<string, string> = {
   opus: 'claude-opus-4-6',
   haiku: 'claude-haiku-4-5-20251001',
   'glm5.1': 'glm-5.1',
-  'glm5': 'glm-5',
+  glm5: 'glm-5',
   'glm4.7': 'glm-4.7',
+  glm5turbo: 'glm-5-turbo',
+  gemma: 'google/gemma-4-31b-it:free',
 };
 
 function readGroupSettings(folder: string): GroupSettings {
@@ -789,8 +791,8 @@ async function main(): Promise<void> {
           '  /new — start a fresh conversation (clear session)',
           '  /model — show current model',
           '  /model <name> — set model (e.g. claude-sonnet-4-6, claude-opus-4-6, claude-haiku-4-5-20251001)',
-          '  /mount-dir <path> [name] [rw] — mount a directory into the agent container',
-          '  /unmount-dir <name> — unmount a directory from the agent container',
+          '  /mount-dir <path> [rw] — mount a directory from the allowlist',
+          '  /unmount-dir <host-path> — unmount a directory from the agent container',
           '  /la — list all mounted directories with file tree',
           '  /ls <path> — list files in a mounted directory (e.g. /ls myrepo/src)',
           '  /restart — restart nanoclaw (launchd will auto-restart)',
@@ -815,9 +817,21 @@ async function main(): Promise<void> {
       const arg = trimmed.slice('/model '.length).trim();
       const resolved = MODEL_ALIASES[arg] || arg;
       const settings = readGroupSettings(group.folder);
+      const previousModel = settings.model || 'claude-sonnet-4-6';
       settings.model = resolved;
       writeGroupSettings(group.folder, settings);
-      await channel.sendMessage(chatJid, `Model set to: ${resolved}`);
+      // Clear session when model changes to avoid incompatible conversation history
+      if (resolved !== previousModel) {
+        delete sessions[group.folder];
+        setSession(group.folder, '');
+        saveState();
+        await channel.sendMessage(
+          chatJid,
+          `Model set to: ${resolved} (new conversation started)`,
+        );
+      } else {
+        await channel.sendMessage(chatJid, `Model set to: ${resolved}`);
+      }
       return true;
     }
 
@@ -866,7 +880,7 @@ async function main(): Promise<void> {
       logger.info('Container rebuild requested via /rebuild-container command');
       const { exec } = await import('child_process');
       exec(
-        './container/build.sh',
+        'CONTAINER_RUNTIME=docker ./container/build.sh',
         { cwd: process.cwd() },
         async (err, stdout, stderr) => {
           if (err) {
@@ -919,15 +933,11 @@ async function main(): Promise<void> {
       const args = trimmed.slice('/mount-dir '.length).trim().split(/\s+/);
       const hostPath = args[0];
       if (!hostPath) {
-        await channel.sendMessage(
-          chatJid,
-          'Usage: /mount-dir <path> [name] [rw]',
-        );
+        await channel.sendMessage(chatJid, 'Usage: /mount-dir <path> [rw]');
         return true;
       }
       const isRw = args.includes('rw');
-      const nameArg = args.find((a) => a !== hostPath && a !== 'rw');
-      const containerPath = nameArg || path.basename(expandPath(hostPath));
+      const containerPath = path.basename(expandPath(hostPath));
 
       const mount: AdditionalMount = {
         hostPath,
@@ -971,18 +981,19 @@ async function main(): Promise<void> {
     }
 
     if (trimmed.startsWith('/unmount-dir ')) {
-      const name = trimmed.slice('/unmount-dir '.length).trim();
-      if (!name) {
-        await channel.sendMessage(chatJid, 'Usage: /unmount-dir <name>');
+      const mountPath = trimmed.slice('/unmount-dir '.length).trim();
+      if (!mountPath) {
+        await channel.sendMessage(chatJid, 'Usage: /unmount-dir <host-path>');
         return true;
       }
 
       const mounts = group.containerConfig?.additionalMounts || [];
-      const idx = mounts.findIndex(
-        (m) => (m.containerPath || path.basename(m.hostPath)) === name,
-      );
+      const idx = mounts.findIndex((m) => m.hostPath === mountPath);
       if (idx === -1) {
-        await channel.sendMessage(chatJid, `No mount named "${name}" found.`);
+        await channel.sendMessage(
+          chatJid,
+          `No mount for "${mountPath}" found.`,
+        );
         return true;
       }
 
@@ -992,7 +1003,7 @@ async function main(): Promise<void> {
       setRegisteredGroup(chatJid, group);
       registeredGroups[chatJid] = group;
 
-      await channel.sendMessage(chatJid, `Unmounted: ${name}`);
+      await channel.sendMessage(chatJid, `Unmounted: ${mountPath}`);
       return true;
     }
 
