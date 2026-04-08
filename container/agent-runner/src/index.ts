@@ -84,7 +84,6 @@ class MessageStream {
   private queue: SDKUserMessage[] = [];
   private waiting: (() => void) | null = null;
   private done = false;
-
   push(text: string, images?: ContainerInputImage[]): void {
     const content: string | SDKContentBlock[] =
       images && images.length > 0

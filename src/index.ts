@@ -96,6 +96,9 @@ const MODEL_ALIASES: Record<string, string> = {
   sonnet: 'claude-sonnet-4-6',
   opus: 'claude-opus-4-6',
   haiku: 'claude-haiku-4-5-20251001',
+  'glm5.1': 'glm-5.1',
+  'glm5': 'glm-5',
+  'glm4.7': 'glm-4.7',
 };
 
 function readGroupSettings(folder: string): GroupSettings {

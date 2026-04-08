@@ -44,6 +44,9 @@ const SLASH_COMMANDS = [
             name: 'claude-haiku-4-5-20251001',
             value: 'claude-haiku-4-5-20251001',
           },
+          { name: 'glm-5.1', value: 'glm-5.1' },
+          { name: 'glm-5', value: 'glm-5' },
+          { name: 'glm-4.7', value: 'glm-4.7' },
         ),
     ),
   new SlashCommandBuilder()
@@ -249,6 +252,17 @@ export class DiscordChannel implements Channel {
       // Handle attachments — download and resize images, store placeholders for others
       const imageAttachments: ImageAttachment[] = [];
       if (message.attachments.size > 0) {
+        // Check for image attachments — Z.AI models don't support image input
+        const hasImage = [...message.attachments.values()].some(
+          (att) => (att.contentType || '').startsWith('image/'),
+        );
+        if (hasImage) {
+          await message.reply(
+            "Sorry, the current model doesn't support image attachments. Please send your message as text only.",
+          );
+          return;
+        }
+
         const attachmentDescriptions: string[] = [];
         for (const att of message.attachments.values()) {
           const contentType = att.contentType || '';
