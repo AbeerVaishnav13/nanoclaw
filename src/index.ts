@@ -73,6 +73,7 @@ import {
   handleSessionCommand,
   isSessionCommandAllowed,
 } from './session-commands.js';
+import { startSessionCleanup } from './session-cleanup.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { validateMount, expandPath } from './mount-security.js';
 import {
@@ -1265,6 +1266,7 @@ async function main(): Promise<void> {
       }
     },
   });
+  startSessionCleanup();
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
