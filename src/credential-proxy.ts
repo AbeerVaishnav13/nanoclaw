@@ -27,6 +27,13 @@ export interface ProxyConfig {
   authMode: AuthMode;
 }
 
+const OPENROUTER_URL = new URL('https://openrouter.ai/api');
+
+/** Check if a model name is an OpenRouter namespaced model (contains '/'). */
+function isOpenRouterModel(model: string | undefined): boolean {
+  return !!model && model.includes('/');
+}
+
 export function startCredentialProxy(
   port: number,
   host = '127.0.0.1',
@@ -37,6 +44,7 @@ export function startCredentialProxy(
     'ANTHROPIC_AUTH_TOKEN',
     'ANTHROPIC_BASE_URL',
     'ZAI_API_KEY',
+    'OPENROUTER_API_KEY',
   ]);
 
   const authMode: AuthMode = secrets.ANTHROPIC_API_KEY
@@ -47,11 +55,10 @@ export function startCredentialProxy(
   const oauthToken =
     secrets.CLAUDE_CODE_OAUTH_TOKEN || secrets.ANTHROPIC_AUTH_TOKEN;
 
-  const upstreamUrl = new URL(
+  const defaultUpstream = new URL(
     secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
   );
-  const isHttps = upstreamUrl.protocol === 'https:';
-  const makeRequest = isHttps ? httpsRequest : httpRequest;
+  const defaultIsHttps = defaultUpstream.protocol === 'https:';
 
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
@@ -59,6 +66,39 @@ export function startCredentialProxy(
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {
         const body = Buffer.concat(chunks);
+
+        // Try to extract model from request body for routing
+        let model: string | undefined;
+        try {
+          const parsed = JSON.parse(body.toString());
+          model = parsed.model;
+        } catch {
+          // Non-JSON or malformed — fall through to default upstream
+        }
+
+        const useOpenRouter =
+          isOpenRouterModel(model) && !!secrets.OPENROUTER_API_KEY;
+
+        // Return 503 if model needs OpenRouter but key is not configured
+        if (isOpenRouterModel(model) && !secrets.OPENROUTER_API_KEY) {
+          logger.warn(
+            { model },
+            'OpenRouter model requested but OPENROUTER_API_KEY not set',
+          );
+          res.writeHead(503, { 'content-type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error:
+                'OpenRouter API key not configured. Set OPENROUTER_API_KEY in .env to use OpenRouter models.',
+            }),
+          );
+          return;
+        }
+
+        const upstreamUrl = useOpenRouter ? OPENROUTER_URL : defaultUpstream;
+        const isHttps = useOpenRouter ? true : defaultIsHttps;
+        const makeReq = isHttps ? httpsRequest : httpRequest;
+
         const headers: Record<string, string | number | string[] | undefined> =
           {
             ...(req.headers as Record<string, string>),
@@ -71,7 +111,12 @@ export function startCredentialProxy(
         delete headers['keep-alive'];
         delete headers['transfer-encoding'];
 
-        if (authMode === 'api-key') {
+        if (useOpenRouter) {
+          // OpenRouter: Bearer auth with OpenRouter API key
+          delete headers['x-api-key'];
+          delete headers['authorization'];
+          headers['authorization'] = `Bearer ${secrets.OPENROUTER_API_KEY}`;
+        } else if (authMode === 'api-key') {
           // API key mode: inject x-api-key on every request (Anthropic)
           delete headers['x-api-key'];
           headers['x-api-key'] = secrets.ANTHROPIC_API_KEY;
@@ -94,11 +139,11 @@ export function startCredentialProxy(
           }
         }
 
-        // Prepend the base URL path (e.g. /api/anthropic) to the request path
+        // Prepend the base URL path (e.g. /api/anthropic or /api) to the request path
         const basePath = upstreamUrl.pathname.replace(/\/+$/, '');
         const fullPath = basePath + req.url;
 
-        const upstream = makeRequest(
+        const upstream = makeReq(
           {
             hostname: upstreamUrl.hostname,
             port: upstreamUrl.port || (isHttps ? 443 : 80),
@@ -129,7 +174,10 @@ export function startCredentialProxy(
     });
 
     server.listen(port, host, () => {
-      logger.info({ port, host, authMode }, 'Credential proxy started');
+      logger.info(
+        { port, host, authMode, openRouter: !!secrets.OPENROUTER_API_KEY },
+        'Credential proxy started',
+      );
       resolve(server);
     });
 
