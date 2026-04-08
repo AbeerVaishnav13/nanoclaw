@@ -1,7 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(git stash:*)",
+      "Bash(node -p \"require\\(''./package.json''\\).version\")",
+      "Bash(node -p \"process.versions.node.split\\(''.''\\)[0]\")",
+      "Bash(python3:*)",
+      "Bash(ls:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)"
     ]
   }
 }
