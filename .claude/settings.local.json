@@ -11,7 +11,25 @@
       "Bash(node -p \"require\\(''./package.json''\\).version\")",
       "Bash(node -p \"process.versions.node.split\\(''.''\\)[0]\")",
       "Bash(python3:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(find . -name \"*.ts\" -exec grep -l \"ContainerInput\" {} \\\\;)",
+      "Bash(onecli config:*)",
+      "Bash(onecli --help)",
+      "Bash(onecli agents:*)",
+      "Bash(onecli rules:*)",
+      "Bash(git fetch:*)",
+      "Bash(npx vitest:*)",
+      "Bash(docker run:*)",
+      "Bash(env)",
+      "WebFetch(domain:openrouter.ai)",
+      "Bash(curl -s https://openrouter.ai/api/v1/messages -X POST -H \"Content-Type: application/json\" -H \"Authorization: Bearer test\" -d '{\"model\":\"anthropic/claude-sonnet-4-6\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1}')",
+      "WebSearch",
+      "Bash(npx tsc:*)",
+      "Bash(/Users/abeervaishnav/Dev/claw/nanoclaw/container/build.sh:*)",
+      "Bash(CONTAINER_RUNTIME=docker /Users/abeervaishnav/Dev/claw/nanoclaw/container/build.sh:*)",
+      "Bash(cp /Users/abeervaishnav/Dev/claw/nanoclaw/.claude/skills/discord-image/SKILL.md /Users/abeervaishnav/Dev/claw/nanoclaw/container/skills/discord-image/SKILL.md)",
+      "Bash(cp /Users/abeervaishnav/Dev/claw/nanoclaw/.claude/skills/discord-image/SKILL.md /Users/abeervaishnav/Dev/claw/nanoclaw/data/sessions/discord_main/.claude/skills/discord-image/SKILL.md)",
+      "Bash(CONTAINER_RUNTIME=docker ./container/build.sh:*)"
     ],
     "ask": [
       "Bash(git push:*)"
