@@ -174,6 +174,14 @@ function buildVolumeMounts(
   fs.mkdirSync(groupSessionsDir, { recursive: true });
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
   if (!fs.existsSync(settingsFile)) {
+    // Read optional timeout override from .env (useful for slower third-party
+    // API providers like Z.AI that need longer timeouts than the SDK default).
+    const envOverrides = readEnvFile(['API_TIMEOUT_MS']);
+    const extraEnv: Record<string, string> = {};
+    if (envOverrides.API_TIMEOUT_MS) {
+      extraEnv['API_TIMEOUT_MS'] = envOverrides.API_TIMEOUT_MS;
+    }
+
     fs.writeFileSync(
       settingsFile,
       JSON.stringify(
@@ -188,6 +196,7 @@ function buildVolumeMounts(
             // Enable Claude's memory feature (persists user preferences between sessions)
             // https://code.claude.com/docs/en/memory#manage-auto-memory
             CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+            ...extraEnv,
           },
         },
         null,

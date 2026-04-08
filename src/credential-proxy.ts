@@ -3,8 +3,12 @@
  * Containers connect here instead of directly to the Anthropic API.
  * The proxy injects real credentials so containers never see them.
  *
- * Two auth modes:
- *   API key:  Proxy injects x-api-key on every request.
+ * Three auth modes:
+ *   API key:  Proxy injects x-api-key on every request (Anthropic default).
+ *   Bearer:   Proxy injects Authorization: Bearer on every request.
+ *             Used for third-party Anthropic-compatible APIs (e.g. Z.AI)
+ *             that use Bearer token auth instead of x-api-key.
+ *             Enable by setting ZAI_API_KEY (and ANTHROPIC_BASE_URL) in .env.
  *   OAuth:    Container CLI exchanges its placeholder token for a temp
  *             API key via /api/oauth/claude_cli/create_api_key.
  *             Proxy injects real OAuth token on that exchange request;
@@ -17,7 +21,7 @@ import { request as httpRequest, RequestOptions } from 'http';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
-export type AuthMode = 'api-key' | 'oauth';
+export type AuthMode = 'api-key' | 'bearer' | 'oauth';
 
 export interface ProxyConfig {
   authMode: AuthMode;
@@ -32,9 +36,14 @@ export function startCredentialProxy(
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_AUTH_TOKEN',
     'ANTHROPIC_BASE_URL',
+    'ZAI_API_KEY',
   ]);
 
-  const authMode: AuthMode = secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
+  const authMode: AuthMode = secrets.ANTHROPIC_API_KEY
+    ? 'api-key'
+    : secrets.ZAI_API_KEY
+      ? 'bearer'
+      : 'oauth';
   const oauthToken =
     secrets.CLAUDE_CODE_OAUTH_TOKEN || secrets.ANTHROPIC_AUTH_TOKEN;
 
@@ -63,9 +72,15 @@ export function startCredentialProxy(
         delete headers['transfer-encoding'];
 
         if (authMode === 'api-key') {
-          // API key mode: inject x-api-key on every request
+          // API key mode: inject x-api-key on every request (Anthropic)
           delete headers['x-api-key'];
           headers['x-api-key'] = secrets.ANTHROPIC_API_KEY;
+        } else if (authMode === 'bearer') {
+          // Bearer mode: inject Authorization: Bearer on every request.
+          // Used for third-party APIs (e.g. Z.AI) that use Bearer auth.
+          delete headers['x-api-key'];
+          delete headers['authorization'];
+          headers['authorization'] = `Bearer ${secrets.ZAI_API_KEY}`;
         } else {
           // OAuth mode: replace placeholder Bearer token with the real one
           // only when the container actually sends an Authorization header
@@ -120,6 +135,10 @@ export function startCredentialProxy(
 
 /** Detect which auth mode the host is configured for. */
 export function detectAuthMode(): AuthMode {
-  const secrets = readEnvFile(['ANTHROPIC_API_KEY']);
-  return secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
+  const secrets = readEnvFile(['ANTHROPIC_API_KEY', 'ZAI_API_KEY']);
+  return secrets.ANTHROPIC_API_KEY
+    ? 'api-key'
+    : secrets.ZAI_API_KEY
+      ? 'bearer'
+      : 'oauth';
 }
