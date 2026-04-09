@@ -131,7 +131,9 @@ const SLASH_COMMANDS = [
     .setDescription('Stop the active remote-control session'),
   new SlashCommandBuilder()
     .setName('compact')
-    .setDescription('Compact conversation history (fights context rot in long sessions)'),
+    .setDescription(
+      'Compact conversation history (fights context rot in long sessions)',
+    ),
 ];
 
 /** Max pixel dimension for images passed to Claude. Keeps token cost low. */
