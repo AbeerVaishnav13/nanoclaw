@@ -37,7 +37,15 @@
       "Bash(chmod +x scripts/claw)",
       "Bash(mkdir -p ~/bin)",
       "Bash(ln -sf \"$\\(pwd\\)/scripts/claw\" ~/bin/claw)",
-      "Bash(~/bin/claw --list-groups)"
+      "Bash(~/bin/claw --list-groups)",
+      "Bash(launchctl list:*)",
+      "Bash(swiftc -O -o dist/statusbar \".claude/skills/add-macos-statusbar/add/src/statusbar.swift\")",
+      "Bash(grep -rn \"http\\\\|listen\\\\|POST\\\\|GET\\\\|express\\\\|fastify\" /Users/abeervaishnav/Dev/claw/nanoclaw/src/*.ts)",
+      "Bash(find:*)",
+      "Bash(swiftc -O -o dist/statusbar .claude/skills/add-macos-statusbar/add/src/statusbar.swift)",
+      "Bash(xattr -cr dist/statusbar)",
+      "Bash(launchctl unload:*)",
+      "Bash(launchctl load:*)"
     ],
     "ask": [
       "Bash(git push:*)"

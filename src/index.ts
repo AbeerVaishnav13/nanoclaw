@@ -690,7 +690,7 @@ async function startMessageLoop(): Promise<void> {
             for (const msg of messagesToSend) {
               pendingImages.delete(msg.id);
             }
-            logger.debug(
+            logger.info(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
             );
