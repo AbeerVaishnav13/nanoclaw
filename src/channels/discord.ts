@@ -10,9 +10,12 @@ import {
   TextChannel,
 } from 'discord.js';
 import sharp from 'sharp';
+import fs from 'fs';
 import path from 'path';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
+import { modelSupportsImages } from '../models.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { loadMountAllowlist } from '../mount-security.js';
@@ -253,15 +256,33 @@ export class DiscordChannel implements Channel {
       // Handle attachments — download and resize images, store placeholders for others
       const imageAttachments: ImageAttachment[] = [];
       if (message.attachments.size > 0) {
-        // Check for image attachments — Z.AI models don't support image input
+        // Check if current model supports images
         const hasImage = [...message.attachments.values()].some((att) =>
           (att.contentType || '').startsWith('image/'),
         );
         if (hasImage) {
-          await message.reply(
-            "Sorry, the current model doesn't support image attachments. Please send your message as text only.",
-          );
-          return;
+          const currentModel = (() => {
+            try {
+              const grp = this.opts.registeredGroups()[chatJid];
+              if (!grp) return 'claude-sonnet-4-6';
+              const settingsPath = path.join(
+                resolveGroupFolderPath(grp.folder),
+                'nanoclaw.settings.json',
+              );
+              return (
+                JSON.parse(fs.readFileSync(settingsPath, 'utf-8')).model ||
+                'claude-sonnet-4-6'
+              );
+            } catch {
+              return 'claude-sonnet-4-6';
+            }
+          })();
+          if (!modelSupportsImages(currentModel)) {
+            await message.reply(
+              "Sorry, the current model doesn't support image attachments. Please send your message as text only.",
+            );
+            return;
+          }
         }
 
         const attachmentDescriptions: string[] = [];

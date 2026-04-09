@@ -29,7 +29,10 @@
       "Bash(CONTAINER_RUNTIME=docker /Users/abeervaishnav/Dev/claw/nanoclaw/container/build.sh:*)",
       "Bash(cp /Users/abeervaishnav/Dev/claw/nanoclaw/.claude/skills/discord-image/SKILL.md /Users/abeervaishnav/Dev/claw/nanoclaw/container/skills/discord-image/SKILL.md)",
       "Bash(cp /Users/abeervaishnav/Dev/claw/nanoclaw/.claude/skills/discord-image/SKILL.md /Users/abeervaishnav/Dev/claw/nanoclaw/data/sessions/discord_main/.claude/skills/discord-image/SKILL.md)",
-      "Bash(CONTAINER_RUNTIME=docker ./container/build.sh:*)"
+      "Bash(CONTAINER_RUNTIME=docker ./container/build.sh:*)",
+      "Bash(npm list:*)",
+      "Bash(xargs -I{} bash -c 'echo \"=== {} ===\" && cat \"/Users/abeervaishnav/Dev/claw/nanoclaw/groups/discord_main/logs/{}\"')",
+      "Bash(./container/build.sh)"
     ],
     "ask": [
       "Bash(git push:*)"

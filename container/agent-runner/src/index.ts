@@ -336,7 +336,12 @@ function shouldClose(): boolean {
  * Drain all pending IPC input messages.
  * Returns messages found, or empty array.
  */
-function drainIpcInput(): string[] {
+interface IpcMessage {
+    text: string;
+    images?: ContainerInputImage[];
+}
+
+function drainIpcInput(): IpcMessage[] {
     try {
         fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
         const files = fs
@@ -344,14 +349,17 @@ function drainIpcInput(): string[] {
             .filter((f) => f.endsWith('.json'))
             .sort();
 
-        const messages: string[] = [];
+        const messages: IpcMessage[] = [];
         for (const file of files) {
             const filePath = path.join(IPC_INPUT_DIR, file);
             try {
                 const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
                 fs.unlinkSync(filePath);
                 if (data.type === 'message' && data.text) {
-                    messages.push(data.text);
+                    messages.push({
+                        text: data.text,
+                        images: Array.isArray(data.images) ? data.images : undefined,
+                    });
                 }
             } catch (err) {
                 log(
@@ -373,9 +381,9 @@ function drainIpcInput(): string[] {
 
 /**
  * Wait for a new IPC message or _close sentinel.
- * Returns the messages as a single string, or null if _close.
+ * Returns combined IpcMessage, or null if _close.
  */
-function waitForIpcMessage(): Promise<string | null> {
+function waitForIpcMessage(): Promise<IpcMessage | null> {
     return new Promise((resolve) => {
         const poll = () => {
             if (shouldClose()) {
@@ -384,7 +392,9 @@ function waitForIpcMessage(): Promise<string | null> {
             }
             const messages = drainIpcInput();
             if (messages.length > 0) {
-                resolve(messages.join('\n'));
+                const text = messages.map((m) => m.text).join('\n');
+                const images = messages.flatMap((m) => m.images ?? []);
+                resolve({ text, images: images.length > 0 ? images : undefined });
                 return;
             }
             setTimeout(poll, IPC_POLL_MS);
@@ -428,9 +438,9 @@ async function runQuery(
             return;
         }
         const messages = drainIpcInput();
-        for (const text of messages) {
-            log(`Piping IPC message into active query (${text.length} chars)`);
-            stream.push(text);
+        for (const msg of messages) {
+            log(`Piping IPC message into active query (${msg.text.length} chars, ${msg.images?.length ?? 0} images)`);
+            stream.push(msg.text, msg.images);
         }
         setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
     };
@@ -438,6 +448,7 @@ async function runQuery(
 
     let newSessionId: string | undefined;
     let lastAssistantUuid: string | undefined;
+    let lastAssistantText: string | undefined;
     let messageCount = 0;
     let resultCount = 0;
 
@@ -535,6 +546,20 @@ async function runQuery(
             lastAssistantUuid = (message as { uuid: string }).uuid;
         }
 
+        // Capture text from assistant messages for models that don't
+        // produce a result message with text (e.g. OpenRouter/Gemma).
+        if (message.type === 'assistant' && 'message' in message) {
+            const msg = (message as { message?: { content?: Array<{ type: string; text?: string }> } }).message;
+            if (msg?.content && Array.isArray(msg.content)) {
+                const textBlock = msg.content.find(
+                    (b) => b.type === 'text' && b.text && !b.text.startsWith('<internal>'),
+                );
+                if (textBlock?.text) {
+                    lastAssistantText = textBlock.text;
+                }
+            }
+        }
+
         if (message.type === 'system' && message.subtype === 'init') {
             newSessionId = message.session_id;
             log(`Session initialized: ${newSessionId}`);
@@ -558,14 +583,18 @@ async function runQuery(
             resultCount++;
             const textResult =
                 'result' in message ? (message as { result?: string }).result : null;
+            // Fallback: if result has no text but assistant messages did,
+            // use the last assistant text (common with OpenRouter models).
+            const finalResult = textResult || lastAssistantText || null;
             log(
-                `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
+                `Result #${resultCount}: subtype=${message.subtype}${finalResult ? ` text=${finalResult.slice(0, 200)}` : ''}`,
             );
             writeOutput({
                 status: 'success',
-                result: textResult || null,
+                result: finalResult,
                 newSessionId,
             });
+            lastAssistantText = undefined; // Reset after use
         }
     }
 
@@ -681,7 +710,15 @@ async function main(): Promise<void> {
     const pending = drainIpcInput();
     if (pending.length > 0) {
         log(`Draining ${pending.length} pending IPC messages into initial prompt`);
-        prompt += '\n' + pending.join('\n');
+        prompt += '\n' + pending.map((m) => m.text).join('\n');
+        // Merge any images from pending IPC messages with stdin images
+        const pendingImages = pending.flatMap((m) => m.images ?? []);
+        if (pendingImages.length > 0) {
+            containerInput.images = [
+                ...(containerInput.images ?? []),
+                ...pendingImages,
+            ];
+        }
     }
 
     // --- Slash command handling ---
@@ -808,6 +845,7 @@ async function main(): Promise<void> {
 
     // Query loop: run query → wait for IPC message → run new query → repeat
     let resumeAt: string | undefined;
+    let nextImages: ContainerInputImage[] | undefined = containerInput.images;
     try {
         while (true) {
             log(
@@ -821,8 +859,9 @@ async function main(): Promise<void> {
                 containerInput,
                 sdkEnv,
                 resumeAt,
-                containerInput.images,
+                nextImages,
             );
+            nextImages = undefined;
             if (queryResult.newSessionId) {
                 sessionId = queryResult.newSessionId;
             }
@@ -850,8 +889,9 @@ async function main(): Promise<void> {
                 break;
             }
 
-            log(`Got new message (${nextMessage.length} chars), starting new query`);
-            prompt = nextMessage;
+            log(`Got new message (${nextMessage.text.length} chars, ${nextMessage.images?.length ?? 0} images), starting new query`);
+            prompt = nextMessage.text;
+            nextImages = nextMessage.images;
         }
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);

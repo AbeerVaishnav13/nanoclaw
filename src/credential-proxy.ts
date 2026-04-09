@@ -27,12 +27,28 @@ export interface ProxyConfig {
   authMode: AuthMode;
 }
 
-const OPENROUTER_URL = new URL('https://openrouter.ai/api');
+const DEFAULT_OPENROUTER_URL = new URL('https://openrouter.ai/api');
+let _openRouterUrl = DEFAULT_OPENROUTER_URL;
+
+export function getOpenRouterUrl(): URL {
+  return _openRouterUrl;
+}
+
+/** @internal Test-only: override the OpenRouter URL. */
+export function _setOpenRouterUrl(url: URL | null): void {
+  _openRouterUrl = url ?? DEFAULT_OPENROUTER_URL;
+}
 
 /** Check if a model name is an OpenRouter namespaced model (contains '/'). */
 function isOpenRouterModel(model: string | undefined): boolean {
   return !!model && model.includes('/');
 }
+
+/** Check if a model is a Claude model. */
+function isClaudeModel(model: string): boolean {
+  return model.startsWith('anthropic/') || model.toLowerCase().includes('claude');
+}
+
 
 export function startCredentialProxy(
   port: number,
@@ -79,6 +95,39 @@ export function startCredentialProxy(
         const useOpenRouter =
           isOpenRouterModel(model) && !!secrets.OPENROUTER_API_KEY;
 
+        // Log raw body from SDK before any rewriting (diagnostic)
+        if (useOpenRouter) {
+          const rawStr = body.toString();
+          const hasImage = rawStr.includes('"type":"image"') || rawStr.includes('"type": "image"');
+          logger.info(
+            { hasImage, bodyLength: rawStr.length },
+            'Raw body received from SDK for OpenRouter request',
+          );
+          if (hasImage) {
+            logger.info({ body: rawStr }, 'Raw body with image blocks');
+          }
+        }
+
+        // Strip Anthropic-specific body fields for OpenRouter
+        let finalBody = body;
+        if (useOpenRouter && model) {
+          try {
+            const parsed = JSON.parse(body.toString());
+            delete parsed.context_management;
+
+            // Convert Anthropic thinking to OpenRouter reasoning format
+            if (parsed.thinking) {
+              delete parsed.thinking;
+              parsed.reasoning = { enabled: true };
+            }
+
+            const rewritten = JSON.stringify(parsed);
+            finalBody = Buffer.from(rewritten);
+          } catch {
+            // Non-JSON — forward as-is
+          }
+        }
+
         // Return 503 if model needs OpenRouter but key is not configured
         if (isOpenRouterModel(model) && !secrets.OPENROUTER_API_KEY) {
           logger.warn(
@@ -95,15 +144,15 @@ export function startCredentialProxy(
           return;
         }
 
-        const upstreamUrl = useOpenRouter ? OPENROUTER_URL : defaultUpstream;
-        const isHttps = useOpenRouter ? true : defaultIsHttps;
+        const upstreamUrl = useOpenRouter ? getOpenRouterUrl() : defaultUpstream;
+        const isHttps = upstreamUrl.protocol === 'https:';
         const makeReq = isHttps ? httpsRequest : httpRequest;
 
         const headers: Record<string, string | number | string[] | undefined> =
           {
             ...(req.headers as Record<string, string>),
             host: upstreamUrl.host,
-            'content-length': body.length,
+            'content-length': finalBody.length,
           };
 
         // Strip hop-by-hop headers that must not be forwarded by proxies
@@ -115,6 +164,8 @@ export function startCredentialProxy(
           // OpenRouter: Bearer auth with OpenRouter API key
           delete headers['x-api-key'];
           delete headers['authorization'];
+          delete headers['anthropic-beta'];
+          delete headers['anthropic-version'];
           headers['authorization'] = `Bearer ${secrets.OPENROUTER_API_KEY}`;
         } else if (authMode === 'api-key') {
           // API key mode: inject x-api-key on every request (Anthropic)
@@ -141,7 +192,12 @@ export function startCredentialProxy(
 
         // Prepend the base URL path (e.g. /api/anthropic or /api) to the request path
         const basePath = upstreamUrl.pathname.replace(/\/+$/, '');
-        const fullPath = basePath + req.url;
+        // Strip ?beta=true query param for OpenRouter (SDK adds it automatically)
+        let reqPath = req.url || '';
+        if (useOpenRouter) {
+          reqPath = reqPath.replace(/[?&]beta=true/, '').replace(/\?$/, '');
+        }
+        const fullPath = basePath + reqPath;
 
         const upstream = makeReq(
           {
@@ -168,7 +224,10 @@ export function startCredentialProxy(
           }
         });
 
-        upstream.write(body);
+        if (useOpenRouter) {
+          logger.info({ body: finalBody.toString() }, 'Final body sent to OpenRouter');
+        }
+        upstream.write(finalBody);
         upstream.end();
       });
     });

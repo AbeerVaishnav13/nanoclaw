@@ -92,16 +92,7 @@ interface GroupSettings {
   model?: string;
 }
 
-const MODEL_ALIASES: Record<string, string> = {
-  sonnet: 'claude-sonnet-4-6',
-  opus: 'claude-opus-4-6',
-  haiku: 'claude-haiku-4-5-20251001',
-  'glm5.1': 'glm-5.1',
-  glm5: 'glm-5',
-  'glm4.7': 'glm-4.7',
-  glm5turbo: 'glm-5-turbo',
-  gemma: 'google/gemma-4-31b-it:free',
-};
+import { MODEL_ALIASES, modelSupportsImages } from './models.js';
 
 function readGroupSettings(folder: string): GroupSettings {
   try {
@@ -134,6 +125,37 @@ let messageLoopRunning = false;
 const pendingImages = new Map<string, ContainerInputImage[]>();
 
 const channels: Channel[] = [];
+
+/**
+ * Dedup tracker: prevents the same message from being sent twice when
+ * the agent both calls send_message (IPC) and returns the same text as a result.
+ * Keys are `${chatJid}\0${text}`, entries expire after 10 seconds.
+ */
+const recentSends = new Map<string, number>();
+const DEDUP_TTL_MS = 10_000;
+
+function markSent(chatJid: string, text: string): void {
+  recentSends.set(`${chatJid}\0${text}`, Date.now());
+}
+
+function wasSentRecently(chatJid: string, text: string): boolean {
+  const key = `${chatJid}\0${text}`;
+  const ts = recentSends.get(key);
+  if (!ts) return false;
+  if (Date.now() - ts > DEDUP_TTL_MS) {
+    recentSends.delete(key);
+    return false;
+  }
+  return true;
+}
+
+// Periodic cleanup of stale dedup entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of recentSends) {
+    if (now - ts > DEDUP_TTL_MS) recentSends.delete(key);
+  }
+}, 30_000);
 const queue = new GroupQueue();
 
 function loadState(): void {
@@ -381,7 +403,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
         logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
         if (text) {
-          await channel.sendMessage(chatJid, text);
+          if (wasSentRecently(chatJid, text)) {
+            logger.debug(
+              { group: group.name },
+              'Skipping duplicate agent output (already sent via IPC)',
+            );
+          } else {
+            markSent(chatJid, text);
+            await channel.sendMessage(chatJid, text);
+          }
           outputSentToUser = true;
         }
         // Only reset idle timer on actual results, not session-update markers (result: null)
@@ -641,9 +671,21 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
+          // Re-attach cached images for piped messages
+          for (const msg of messagesToSend) {
+            const cached = pendingImages.get(msg.id);
+            if (cached) msg.images = cached;
+          }
           const formatted = formatMessages(messagesToSend, TIMEZONE);
+          const pipedImages = messagesToSend.flatMap(
+            (m) => m.images ?? [],
+          );
 
-          if (queue.sendMessage(chatJid, formatted)) {
+          if (queue.sendMessage(chatJid, formatted, pipedImages.length > 0 ? pipedImages : undefined)) {
+            // Evict piped images from cache
+            for (const msg of messagesToSend) {
+              pendingImages.delete(msg.id);
+            }
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
@@ -1249,6 +1291,7 @@ async function main(): Promise<void> {
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       const text = formatOutbound(rawText, channel.name as ChannelType);
       if (!text) return Promise.resolve();
+      markSent(jid, text);
       return channel.sendMessage(jid, text);
     },
     registeredGroups: () => registeredGroups,
