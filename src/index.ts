@@ -677,11 +677,15 @@ async function startMessageLoop(): Promise<void> {
             if (cached) msg.images = cached;
           }
           const formatted = formatMessages(messagesToSend, TIMEZONE);
-          const pipedImages = messagesToSend.flatMap(
-            (m) => m.images ?? [],
-          );
+          const pipedImages = messagesToSend.flatMap((m) => m.images ?? []);
 
-          if (queue.sendMessage(chatJid, formatted, pipedImages.length > 0 ? pipedImages : undefined)) {
+          if (
+            queue.sendMessage(
+              chatJid,
+              formatted,
+              pipedImages.length > 0 ? pipedImages : undefined,
+            )
+          ) {
             // Evict piped images from cache
             for (const msg of messagesToSend) {
               pendingImages.delete(msg.id);

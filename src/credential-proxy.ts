@@ -46,9 +46,10 @@ function isOpenRouterModel(model: string | undefined): boolean {
 
 /** Check if a model is a Claude model. */
 function isClaudeModel(model: string): boolean {
-  return model.startsWith('anthropic/') || model.toLowerCase().includes('claude');
+  return (
+    model.startsWith('anthropic/') || model.toLowerCase().includes('claude')
+  );
 }
-
 
 export function startCredentialProxy(
   port: number,
@@ -98,7 +99,9 @@ export function startCredentialProxy(
         // Log raw body from SDK before any rewriting (diagnostic)
         if (useOpenRouter) {
           const rawStr = body.toString();
-          const hasImage = rawStr.includes('"type":"image"') || rawStr.includes('"type": "image"');
+          const hasImage =
+            rawStr.includes('"type":"image"') ||
+            rawStr.includes('"type": "image"');
           logger.info(
             { hasImage, bodyLength: rawStr.length },
             'Raw body received from SDK for OpenRouter request',
@@ -144,7 +147,9 @@ export function startCredentialProxy(
           return;
         }
 
-        const upstreamUrl = useOpenRouter ? getOpenRouterUrl() : defaultUpstream;
+        const upstreamUrl = useOpenRouter
+          ? getOpenRouterUrl()
+          : defaultUpstream;
         const isHttps = upstreamUrl.protocol === 'https:';
         const makeReq = isHttps ? httpsRequest : httpRequest;
 
@@ -225,7 +230,10 @@ export function startCredentialProxy(
         });
 
         if (useOpenRouter) {
-          logger.info({ body: finalBody.toString() }, 'Final body sent to OpenRouter');
+          logger.info(
+            { body: finalBody.toString() },
+            'Final body sent to OpenRouter',
+          );
         }
         upstream.write(finalBody);
         upstream.end();

@@ -316,7 +316,10 @@ describe('credential-proxy', () => {
         source: { type: 'base64', media_type: 'image/jpeg', data: 'abc123' },
       });
       // Text block should be unchanged
-      expect(content[1]).toEqual({ type: 'text', text: 'What is in this image?' });
+      expect(content[1]).toEqual({
+        type: 'text',
+        text: 'What is in this image?',
+      });
       // context_management should be stripped
       expect(parsed.context_management).toBeUndefined();
     } finally {
