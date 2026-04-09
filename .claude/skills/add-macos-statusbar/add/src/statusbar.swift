@@ -34,11 +34,11 @@ class StatusBarController: NSObject {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            if let image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "NanoClaw") {
+            if let image = NSImage(systemSymbolName: "crab.fill", accessibilityDescription: "NanoClaw") {
                 image.isTemplate = true
                 button.image = image
             } else {
-                button.title = "⚡"
+                button.title = "🦀"
             }
             button.toolTip = "NanoClaw"
         }

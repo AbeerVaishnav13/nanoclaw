@@ -875,6 +875,9 @@ async function main(): Promise<void> {
           chatJid,
           `Model set to: ${resolved} (new conversation started)`,
         );
+        await channel.sendMessage(chatJid, 'Restarting... be right back!');
+        logger.info(`Model changed to ${resolved}, restarting...`);
+        setTimeout(() => process.exit(0), 500);
       } else {
         await channel.sendMessage(chatJid, `Model set to: ${resolved}`);
       }

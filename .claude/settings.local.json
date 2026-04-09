@@ -32,7 +32,12 @@
       "Bash(CONTAINER_RUNTIME=docker ./container/build.sh:*)",
       "Bash(npm list:*)",
       "Bash(xargs -I{} bash -c 'echo \"=== {} ===\" && cat \"/Users/abeervaishnav/Dev/claw/nanoclaw/groups/discord_main/logs/{}\"')",
-      "Bash(./container/build.sh)"
+      "Bash(./container/build.sh)",
+      "Bash(cp .claude/skills/claw/scripts/claw scripts/claw)",
+      "Bash(chmod +x scripts/claw)",
+      "Bash(mkdir -p ~/bin)",
+      "Bash(ln -sf \"$\\(pwd\\)/scripts/claw\" ~/bin/claw)",
+      "Bash(~/bin/claw --list-groups)"
     ],
     "ask": [
       "Bash(git push:*)"
