@@ -24,6 +24,10 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 
+function isOpenRouterModel(model: string | undefined): boolean {
+    return !!model && model.includes('/');
+}
+
 interface ContainerInputImage {
     data: string; // base64-encoded JPEG
     media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
@@ -466,8 +470,10 @@ async function runQuery(
             model: containerInput.model || 'claude-sonnet-4-6',
             cwd: '/workspace/group',
             additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-            resume: sessionId,
-            resumeSessionAt: resumeAt,
+            ...(isOpenRouterModel(containerInput.model) ? {} : {
+                resume: sessionId,
+                resumeSessionAt: resumeAt,
+            }),
             systemPrompt: globalClaudeMd
                 ? {
                     type: 'preset' as const,
