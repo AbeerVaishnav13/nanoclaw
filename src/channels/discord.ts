@@ -391,7 +391,9 @@ export class DiscordChannel implements Channel {
             .filter((r) => r.path.toLowerCase().includes(focused))
             .slice(0, 25)
             .map((r) => {
-              const name = r.description ? `${r.path} — ${r.description}` : r.path;
+              const name = r.description
+                ? `${r.path} — ${r.description}`
+                : r.path;
               return { name: name.slice(0, 100), value: r.path };
             });
           await interaction.respond(choices);
