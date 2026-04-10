@@ -234,6 +234,11 @@ class StatusBarController: NSObject {
         logs.target = self
         menu.addItem(logs)
 
+        menu.addItem(NSMenuItem.separator())
+
+        let quit = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(quit)
+
         self.statusItem.menu = menu
     }
 
