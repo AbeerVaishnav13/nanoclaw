@@ -479,7 +479,7 @@ async function runQuery(
         prompt: stream,
         options: {
             model: containerInput.model || 'claude-sonnet-4-6',
-            cwd: '/workspace/group',
+            cwd: '/workspace',
             additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
             ...(isOpenRouterModel(containerInput.model) ? {} : {
                 resume: sessionId,
@@ -739,7 +739,7 @@ async function main(): Promise<void> {
             for await (const message of query({
                 prompt: trimmedPrompt,
                 options: {
-                    cwd: '/workspace/group',
+                    cwd: '/workspace',
                     resume: sessionId,
                     systemPrompt: undefined,
                     allowedTools: [],
