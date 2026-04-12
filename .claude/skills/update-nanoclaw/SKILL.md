@@ -209,6 +209,28 @@ If one or more `[BREAKING]` lines are found:
 - For each skill the user selects, invoke it using the Skill tool.
 - After all selected skills complete (or if user chose Skip), proceed to Step 7 (skill updates check).
 
+# Step 6.5: Check for groups/main/CLAUDE.md drift into discord_main
+If the upstream update touched `groups/main/CLAUDE.md` (the stock template), offer to sync the changes into `groups/discord_main/CLAUDE.md` (Rocky's live config).
+
+Detect whether it changed in this update:
+- `git diff --name-only <backup-tag-from-step-1>..HEAD -- groups/main/CLAUDE.md`
+
+If the path is listed:
+- Show the diff of upstream changes: `git diff <backup-tag-from-step-1>..HEAD -- groups/main/CLAUDE.md`
+- Also show a side-by-side diff between the two files so the user can see what already differs: `git diff --no-index groups/main/CLAUDE.md groups/discord_main/CLAUDE.md` (expect a non-zero exit — that's fine).
+- Use AskUserQuestion to ask the user how to handle it. Options:
+  - "Merge into discord_main" (description: "Apply the upstream changes to groups/discord_main/CLAUDE.md, preserving Rocky's personality and auth/container customizations")
+  - "Skip" (description: "Leave groups/discord_main/CLAUDE.md untouched")
+- If the user selects merge:
+  - Read both files.
+  - Port only the *new* upstream additions into discord_main (new sections, fields, instructions).
+  - Preserve Rocky's identity, personality rules, Discord-only formatting, the Z.AI/OpenRouter `.env` auth section, and the discord_main-specific container mount table. Do NOT overwrite them with the stock "Andy" / OneCLI / Anthropic-auth text.
+  - Show the resulting diff and let the user confirm before staging.
+  - `git add groups/discord_main/CLAUDE.md` and commit as a separate commit: `git commit -m "Sync groups/main/CLAUDE.md changes into discord_main"`.
+- If the user skips, proceed.
+
+If `groups/main/CLAUDE.md` did not change in this update, skip this step silently.
+
 # Step 7: Check for skill updates
 After the summary, check if skills are distributed as branches in this repo:
 - `git branch -r --list 'upstream/skill/*'`

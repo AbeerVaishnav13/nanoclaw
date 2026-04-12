@@ -45,7 +45,12 @@
       "Bash(swiftc -O -o dist/statusbar .claude/skills/add-macos-statusbar/add/src/statusbar.swift)",
       "Bash(xattr -cr dist/statusbar)",
       "Bash(launchctl unload:*)",
-      "Bash(launchctl load:*)"
+      "Bash(launchctl load:*)",
+      "Bash(git checkout:*)",
+      "Bash(wc:*)",
+      "Bash(du -b /Users/abeervaishnav/Dev/claw/nanoclaw/groups/discord_main/conversations/*.md)",
+      "Bash(awk '{sum+=$1} END {print sum \" bytes total\"}')",
+      "Bash(awk '{sum+=$5} END {print sum}')"
     ],
     "ask": [
       "Bash(git push:*)"
