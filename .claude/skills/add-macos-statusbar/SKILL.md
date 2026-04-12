@@ -10,6 +10,15 @@ start, stop, or restart the service — similar to how Docker Desktop appears in
 
 **macOS only.** Requires Xcode Command Line Tools (`swiftc`).
 
+> **State detection contract:** this skill tails `logs/nanoclaw.log` for lifecycle markers.
+> Those markers are defined in [docs/CONTAINER_LIFECYCLE.md](../../../docs/CONTAINER_LIFECYCLE.md).
+> If you're changing state detection, read that doc first — it's the source of truth.
+
+> **SF Symbol names are not guessable.** Apple's catalog changes across OS versions and
+> plausible-sounding names (e.g. `crab.fill`) often don't exist. Before committing to a
+> symbol name, verify with `NSImage(systemSymbolName:accessibilityDescription:)` — it
+> returns `nil` for missing symbols. The SF Symbols.app from Apple is the source of truth.
+
 ## Phase 1: Pre-flight
 
 ### Check platform
@@ -123,6 +132,17 @@ Tell the user:
 > - **Red dot** — NanoClaw is stopped
 >
 > Use **Restart** after making code changes, and **View Logs** to open the log file directly.
+
+## Restarting after recompile
+
+After recompiling `dist/statusbar`, restart the launchd job with `unload` + `load`, **not** `launchctl kickstart -k`:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.nanoclaw.statusbar.plist
+launchctl load ~/Library/LaunchAgents/com.nanoclaw.statusbar.plist
+```
+
+`kickstart -k` kills the running process and can race against the freshly-swapped binary, leaving the job in a half-started state. `unload`/`load` is deterministic.
 
 ## Removal
 
