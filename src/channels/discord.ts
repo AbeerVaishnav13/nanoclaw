@@ -28,7 +28,19 @@ import {
   RegisteredGroup,
 } from '../types.js';
 
-/** Discord Application Commands — these show autocomplete when users type "/" */
+/**
+ * Discord Application Commands — these show autocomplete when users type "/".
+ *
+ * Discord API limits (enforced by Discord, will fail command registration or
+ * autocomplete if exceeded):
+ * - command name: ≤32 chars
+ * - command description: ≤100 chars
+ * - autocomplete choice name: ≤100 chars
+ * - autocomplete choice value: ≤100 chars
+ *
+ * Always `.slice(0, 100)` any string derived from user data or external config
+ * (mount-allowlist descriptions, group names, etc.) before handing it to Discord.
+ */
 const SLASH_COMMANDS = [
   new SlashCommandBuilder()
     .setName('new')
@@ -113,6 +125,9 @@ const SLASH_COMMANDS = [
     .setDescription(
       'Rebuild the Docker agent container image (runs container/build.sh)',
     ),
+  new SlashCommandBuilder()
+    .setName('rebuild-all')
+    .setDescription('Full rebuild: npm build, container build, then restart'),
   new SlashCommandBuilder()
     .setName('status')
     .setDescription(

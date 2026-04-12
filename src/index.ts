@@ -843,6 +843,7 @@ async function main(): Promise<void> {
           '  /ls <path> — list files in a mounted directory (e.g. /ls myrepo/src)',
           '  /restart — restart nanoclaw (launchd will auto-restart)',
           '  /build-restart — build then restart nanoclaw',
+          '  /rebuild-all — npm build, container build, then restart',
           '  /update-nanoclaw — pull upstream updates, build, and restart',
           '  /help — show this help',
           '',
@@ -947,6 +948,52 @@ async function main(): Promise<void> {
           logger.info('Container build succeeded');
         },
       );
+      return true;
+    }
+
+    if (trimmed === '/rebuild-all') {
+      await channel.sendMessage(chatJid, 'Step 1/3: Running npm build...');
+      logger.info('Full rebuild requested via /rebuild-all command');
+      const { exec } = await import('child_process');
+      const cwd = process.cwd();
+      exec('npm run build', { cwd }, async (err, stdout, stderr) => {
+        if (err) {
+          logger.error({ err, stderr }, 'npm build failed');
+          await channel.sendMessage(
+            chatJid,
+            `Step 1/3 failed — npm build:\n${stderr || err.message}`,
+          );
+          return;
+        }
+        await channel.sendMessage(
+          chatJid,
+          'Step 1/3 done ✅  Step 2/3: Rebuilding container image...',
+        );
+        logger.info('npm build succeeded, starting container build');
+        exec(
+          'CONTAINER_RUNTIME=docker ./container/build.sh',
+          { cwd },
+          async (err2, stdout2, stderr2) => {
+            if (err2) {
+              logger.error(
+                { err: err2, stderr: stderr2 },
+                'Container build failed',
+              );
+              await channel.sendMessage(
+                chatJid,
+                `Step 2/3 failed — container build:\n${stderr2 || err2.message}`,
+              );
+              return;
+            }
+            await channel.sendMessage(
+              chatJid,
+              'Step 2/3 done ✅  Step 3/3: Restarting... be right back!',
+            );
+            logger.info('Full rebuild succeeded, restarting');
+            setTimeout(() => process.exit(0), 500);
+          },
+        );
+      });
       return true;
     }
 
