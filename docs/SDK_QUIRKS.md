@@ -58,6 +58,35 @@ Also, `resume`/`resumeSessionAt` options are **skipped** for OpenRouter models. 
 
 ---
 
+## GLM (and other non-Claude) models copy their own prior replies verbatim
+
+If you run a group on `glm-5-turbo` (or similar non-Claude models via Z.AI / OpenRouter) and the agent starts emitting a consistent stylistic tic that ignores your system-prompt overrides — trailing italic summaries, fixed sign-offs, meta-commentary about its own reply — the likely cause is **in-context pattern copying**, not the system prompt.
+
+GLM-family models are unusually prone to few-shot imitation of their own past turns. Once a pattern is established in the session's conversation history, appending a counter-instruction to `systemPrompt` often fails to override it. The model trusts the pattern more than the prompt.
+
+**Diagnostic check before you start debugging:**
+
+```bash
+grep -r 'end-of-turn\|one or two sentences\|what changed' \
+  container/agent-runner/node_modules/@anthropic-ai/claude-agent-sdk/
+```
+
+If nothing matches, the behavior is not coming from the `claude_code` preset — it is model behavior, and the fix is to flush the session, not to edit the system prompt.
+
+**Fix:**
+
+- From chat: send `/new` in the affected group. This calls `db.deleteSession(groupFolder)` (see `src/db.ts:580`), so the next message spawns the container with `resume: undefined` and starts a completely fresh SDK session.
+- If `/new` alone does not flush the pattern (rare), change the group's model to a different one and back — bouncing the model forces a container respawn and, for OpenRouter-backed models, also takes the no-resume code path in `container/agent-runner/src/index.ts` which skips session resumption entirely.
+- Transcript archives under `groups/<folder>/conversations/*.md` are NOT auto-loaded by the SDK — they are only read if the agent explicitly runs a tool to read them. You do not need to delete them to fix pattern copying.
+
+**Do not:**
+
+- Hunt for a `CLAUDE_CODE_DISABLE_*` env var — none exists. The `claude_code` preset in `@anthropic-ai/claude-agent-sdk` does not contain any end-of-turn-summary instruction.
+- Add long counter-instructions to `systemPrompt.append` expecting them to win against the few-shot pattern. They will not on GLM. Defense-in-depth is fine, but the real cure is clearing the session.
+- Assume `src/session-commands.ts` needs a new `/clear-session` command — `/new` already covers it.
+
+---
+
 ## Adding a new quirk
 
 When you discover SDK behavior that caused a debugging cycle, add it here. Each entry should include:

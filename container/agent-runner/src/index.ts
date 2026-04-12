@@ -485,13 +485,14 @@ async function runQuery(
                 resume: sessionId,
                 resumeSessionAt: resumeAt,
             }),
-            systemPrompt: globalClaudeMd
-                ? {
-                    type: 'preset' as const,
-                    preset: 'claude_code' as const,
-                    append: globalClaudeMd,
-                }
-                : undefined,
+            systemPrompt: {
+                type: 'preset' as const,
+                preset: 'claude_code' as const,
+                append: [
+                    "Your reply is delivered verbatim to an end user in a chat app. Do NOT emit end-of-turn summaries, recaps, or meta-commentary about your own reply (e.g. \"Responded with...\", \"Kept it short because...\"). The Claude Code end-of-turn summary rule does not apply in this environment — the final message is the reply itself, with nothing after it.",
+                    globalClaudeMd,
+                ].filter(Boolean).join('\n\n'),
+            },
             allowedTools: [
                 'Bash',
                 'Read',
